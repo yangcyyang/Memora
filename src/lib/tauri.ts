@@ -3,6 +3,7 @@ import type {
   AppSettings,
   BasicInfo,
   ChatMessage,
+  CorrectionResult,
   GenerateResult,
   ParsedContent,
   Persona,
@@ -20,7 +21,7 @@ export const saveSettings = (provider: string, api_key: string, base_url: string
 export const validateApiKey = (provider: string, api_key: string, base_url: string, model: string) =>
   invoke<boolean>("validate_api_key", { provider, apiKey: api_key, baseUrl: base_url, model });
 
-// ── Parser ──
+// ── Parser & OCR ──
 export const detectAndParse = (paths: string[]) =>
   invoke<Array<{ source: string; target_name: string | null; parsed: ParsedContent }>>(
     "detect_and_parse",
@@ -29,6 +30,8 @@ export const detectAndParse = (paths: string[]) =>
 
 export const parsePastedText = (text: string) =>
   invoke<ParsedContent>("parse_pasted_text", { text });
+
+export const captureAndOcr = () => invoke<string>("capture_and_ocr");
 
 // ── Persona ──
 export const listPersonas = () => invoke<PersonaSummary[]>("list_personas");
@@ -65,4 +68,11 @@ export const deleteChatSession = (personaId: string, sessionId: string) =>
 
 // ── Correction ──
 export const submitCorrection = (personaId: string, original: string, correction: string) =>
-  invoke("submit_correction", { personaId, original, correction });
+  invoke<CorrectionResult>("submit_correction", { personaId, original, correction });
+
+// ── Bridge (Chrome Extension) ──
+export const startWsBridge = (port?: number) =>
+  invoke("start_ws_bridge", { port });
+
+export const getWsBridgePort = () =>
+  invoke<number>("get_ws_bridge_port");

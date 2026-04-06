@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+      background: linear-gradient(145deg, #f8f6f3, #f0ece6);
+      color: #3d3529;
+    }
+
+    .header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #e8e2d9;
+    }
+    .header .logo { font-size: 24px; }
+    .header .title {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .body { padding: 16px 20px; }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: #78705e;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #ccc;
+      flex-shrink: 0;
+    }
+    .status-dot.connected { background: #4ade80; box-shadow: 0 0 6px rgba(74, 222, 128, 0.5); }
+    .status-dot.disconnected { background: #f87171; }
+
+    .port-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .port-input-row label { font-size: 13px; color: #78705e; white-space: nowrap; }
+    .port-input-row input {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1.5px solid #d4cec3;
+      border-radius: 6px;
+      font-size: 13px;
+      background: #fff;
+      color: #3d3529;
+      outline: none;
+    }
+    .port-input-row input:focus { border-color: #c27c73; }
+
+    .action-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #c27c73, #d4928a);
+      color: white;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-secondary {
+      background: #e8e2d9;
+      color: #5a5244;
+    }
+    .btn-secondary:hover { background: #ddd7cd; }
+
+    .result-area {
+      padding: 10px 14px;
+      background: #fff;
+      border: 1.5px solid #e8e2d9;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #78705e;
+      line-height: 1.6;
+      max-height: 100px;
+      overflow-y: auto;
+      word-break: break-all;
+    }
+
+    .footer {
+      padding: 12px 20px;
+      border-top: 1px solid #e8e2d9;
+      font-size: 11px;
+      color: #b0a999;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">💜</span>
+    <span class="title">Memora 数据推送</span>
+  </div>
+
+  <div class="body">
+    <div class="status-row">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">检测连接中…</span>
+    </div>
+
+    <div class="port-input-row">
+      <label>端口</label>
+      <input type="number" id="portInput" value="17394" min="1024" max="65535" />
+    </div>
+
+    <div class="action-group">
+      <button class="btn btn-primary" id="btnPushSelected" disabled>
+        📤 推送选中文本
+      </button>
+      <button class="btn btn-secondary" id="btnPushPage">
+        📄 推送整页文本
+      </button>
+    </div>
+
+    <div class="result-area" id="resultArea">
+      等待操作…
+    </div>
+  </div>
+
+  <div class="footer">
+    请确保 Memora 桌面应用已在运行
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

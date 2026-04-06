@@ -60,6 +60,18 @@ pub fn initialize_db() -> Result<()> {
             applied_at  TEXT NOT NULL
         );
 
+        -- 会话上下文压缩摘要
+        CREATE TABLE IF NOT EXISTS session_summaries (
+            session_id              TEXT PRIMARY KEY,
+            persona_id              TEXT NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+            summary_md              TEXT NOT NULL DEFAULT '',
+            last_compressed_msg_id  INTEGER NOT NULL DEFAULT 0,
+            token_estimate          INTEGER NOT NULL DEFAULT 0,
+            updated_at              TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_summaries_persona
+            ON session_summaries(persona_id);
+
         -- 应用设置
         CREATE TABLE IF NOT EXISTS settings (
             key   TEXT PRIMARY KEY,

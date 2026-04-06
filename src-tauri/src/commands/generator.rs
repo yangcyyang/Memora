@@ -4,6 +4,7 @@ use crate::core::models::{BasicInfo, GenerateProgress, GenerateResult, ParsedCon
 use crate::core::prompts;
 use anyhow::Context;
 use tauri::Emitter;
+use tracing::info;
 
 #[tauri::command]
 pub async fn generate_persona(
@@ -43,9 +44,12 @@ async fn generate_inner(
 
     let tags_str = info.tags.join("、");
     let has_chat_data = !chat_text.is_empty();
+    let total_steps: u32 = if has_chat_data { 5 } else { 3 };
+
+    info!(name = %info.name, has_chat_data, "Starting persona generation");
 
     // Step 1: Analyze persona
-    emit_progress(&app, 1, 4, "分析性格中...")?;
+    emit_progress(&app, 1, total_steps, "分析性格中...")?;
     let persona_analysis = if has_chat_data {
         let prompt = prompts::render(prompts::PERSONA_ANALYZER, &[
             ("chat_text", &chat_text),
@@ -53,7 +57,9 @@ async fn generate_inner(
             ("description", &info.description),
             ("tags", &tags_str),
         ]);
-        ai_provider::chat_completion(&config, &prompt, "请开始分析", 4096).await?
+        let result = ai_provider::chat_completion(&config, &prompt, "请开始分析", 4096).await?;
+        info!("Step 1 done: persona analysis complete ({} chars)", result.len());
+        result
     } else {
         format!(
             "用户没有提供聊天记录。基于用户描述生成：\n名字：{}\n描述：{}\n标签：{}",
@@ -62,7 +68,7 @@ async fn generate_inner(
     };
 
     // Step 2: Build persona
-    emit_progress(&app, 2, 4, "构建人格中...")?;
+    emit_progress(&app, 2, total_steps, "构建人格中...")?;
     let persona_prompt = prompts::render(prompts::PERSONA_BUILDER, &[
         ("analysis", &persona_analysis),
         ("tags", &tags_str),
@@ -70,30 +76,34 @@ async fn generate_inner(
     let persona_md =
         ai_provider::chat_completion(&config, &persona_prompt, "请构建 Persona 文档", 4096)
             .await?;
+    info!("Step 2 done: persona document built ({} chars)", persona_md.len());
 
-    // Step 3: Analyze memories
-    emit_progress(&app, 3, 4, "整理回忆中...")?;
+    // Step 3+: Analyze & build memories
     let memories_md = if has_chat_data {
+        emit_progress(&app, 3, total_steps, "提取回忆中...")?;
         let mem_analysis_prompt = prompts::render(prompts::MEMORIES_ANALYZER, &[
             ("chat_text", &chat_text),
         ]);
         let mem_analysis =
             ai_provider::chat_completion(&config, &mem_analysis_prompt, "请分析共同记忆", 4096)
                 .await?;
+        info!("Step 3 done: memories analysis complete ({} chars)", mem_analysis.len());
 
-        // Step 4: Build memories
-        emit_progress(&app, 4, 4, "完成！")?;
+        // Step 4: Build memories document
+        emit_progress(&app, 4, total_steps, "整理回忆中...")?;
         let mem_build_prompt = prompts::render(prompts::MEMORIES_BUILDER, &[
             ("analysis", &mem_analysis),
         ]);
-        ai_provider::chat_completion(&config, &mem_build_prompt, "请构建 Memories 文档", 4096)
-            .await?
+        let result = ai_provider::chat_completion(&config, &mem_build_prompt, "请构建 Memories 文档", 4096)
+            .await?;
+        info!("Step 4 done: memories document built ({} chars)", result.len());
+        result
     } else {
-        emit_progress(&app, 4, 4, "完成！")?;
         format!("暂无共同记忆。当提供聊天记录后可以补充。")
     };
 
-    // Save to database (in spawn_blocking to avoid Send issues with r2d2)
+    // Save to database
+
     let persona_id = uuid::Uuid::new_v4().to_string();
     let slug = generate_slug(&info.name);
     let now = chrono::Utc::now().to_rfc3339();
@@ -128,6 +138,11 @@ async fn generate_inner(
     })
     .await
     .context("spawn_blocking join error")??;
+
+    info!(persona_id = %persona_id, "Persona saved to DB successfully");
+
+    // Final step: done!
+    emit_progress(&app, total_steps, total_steps, "完成！")?;
 
     let summary = format!(
         "已为「{}」生成 {} 人格和回忆",

@@ -136,3 +136,15 @@ pub struct CorrectionResult {
     pub target: String,      // "persona" | "memories"
     pub version: i32,
 }
+
+// ── Context Compaction ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionCompactionSummary {
+    pub session_id: String,
+    pub persona_id: String,
+    pub summary_md: String,
+    pub last_compressed_msg_id: i64,
+    pub token_estimate: i64,
+    pub updated_at: String,
+}

@@ -14,6 +14,8 @@
       {
         "title": "Memora",
         "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "transparent": true,
         "width": 1100,
         "height": 750,
         "minWidth": 800,
@@ -24,12 +26,18 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://*.openai.com https://*.anthropic.com https://*.googleapis.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com"
+      "csp": "default-src 'self'; connect-src 'self' https://*.openai.com https://*.anthropic.com https://*.googleapis.com ws://127.0.0.1:* ws://localhost:*; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "targets": ["app", "dmg"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.13",
+      "signingIdentity": null,
+      "entitlements": null
+    }
   }
 }

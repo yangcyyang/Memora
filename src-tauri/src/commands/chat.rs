@@ -1,4 +1,5 @@
 use crate::core::ai_provider;
+use crate::core::compaction;
 use crate::core::db_pool::memora_pool;
 use crate::core::models::{ChatMessage, SessionSummary};
 use crate::core::prompts;
@@ -43,19 +44,42 @@ async fn send_message_inner(
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).context("Persona not found")?;
 
-        // Build system prompt
+        // ── Pull session summary (compaction) ───────────────────────
+        let session_summary: String = conn
+            .query_row(
+                "SELECT summary_md FROM session_summaries WHERE session_id = ?1",
+                [&session_id],
+                |row| row.get(0),
+            )
+            .unwrap_or_default();
+
+        let summary_block = if session_summary.is_empty() {
+            "\n".to_string()
+        } else {
+            format!(
+                "\n## 故事前情提要\n{}\n\n",
+                session_summary
+            )
+        };
+
+        // Build system prompt (now includes session summary)
         let sys = prompts::render(prompts::SYSTEM_CHAT, &[
             ("name", &name),
             ("persona_md", &persona_md),
             ("memories_md", &memories_md),
+            ("session_summary", &summary_block),
         ]);
 
-        // Load recent history (last 50 messages)
+        // ── Dynamic recent history window ───────────────────────────
+        // If we have a compaction summary, use a smaller window (12).
+        // Otherwise keep the full 50 messages for first-session experience.
+        let recent_limit: i32 = if session_summary.is_empty() { 50 } else { 12 };
+
         let mut stmt = conn.prepare(
-            "SELECT role, content FROM chat_messages WHERE persona_id = ?1 AND session_id = ?2 ORDER BY id DESC LIMIT 50"
+            "SELECT role, content FROM chat_messages WHERE persona_id = ?1 AND session_id = ?2 ORDER BY id DESC LIMIT ?3"
         )?;
         let mut hist: Vec<(String, String)> = stmt
-            .query_map(rusqlite::params![persona_id, session_id], |row| {
+            .query_map(rusqlite::params![persona_id, session_id, recent_limit], |row| {
                 Ok((row.get(0)?, row.get(1)?))
             })?
             .filter_map(|r| r.ok())
@@ -86,6 +110,21 @@ async fn send_message_inner(
             "INSERT INTO chat_messages (persona_id, session_id, role, content, created_at) VALUES (?1, ?2, 'assistant', ?3, ?4)",
             rusqlite::params![persona_id, session_id, full_reply, now2],
         )?;
+    }
+
+    // ── Background compaction trigger ───────────────────────────────
+    // Fire-and-forget: check thresholds and compress if needed.
+    // Runs on a separate tokio task so the user gets their reply immediately.
+    {
+        let pid = persona_id.clone();
+        let sid = session_id.clone();
+        tokio::spawn(async move {
+            match compaction::compact_session(&pid, &sid).await {
+                Ok(true) => tracing::info!("Background compaction completed for session {}", sid),
+                Ok(false) => {} // threshold not met, normal
+                Err(e) => tracing::warn!("Background compaction failed for session {}: {}", sid, e),
+            }
+        });
     }
 
     Ok(full_reply)
@@ -187,9 +226,16 @@ pub async fn delete_chat_session(persona_id: String, session_id: String) -> Resu
     tokio::task::spawn_blocking(move || {
         let pool = memora_pool();
         let conn = pool.get().map_err(|e| e.to_string())?;
+        // Delete chat messages
         conn.execute(
             "DELETE FROM chat_messages WHERE persona_id = ?1 AND session_id = ?2",
             rusqlite::params![persona_id, session_id],
+        )
+        .map_err(|e| e.to_string())?;
+        // Clean up compaction summary for this session
+        conn.execute(
+            "DELETE FROM session_summaries WHERE session_id = ?1",
+            rusqlite::params![session_id],
         )
         .map_err(|e| e.to_string())?;
         Ok(())

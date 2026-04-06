@@ -117,3 +117,29 @@ pub async fn rollback_persona(id: String, version: i32) -> Result<(), String> {
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn update_persona_field(id: String, field: String, value: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let pool = memora_pool();
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // Whitelist allowed fields to prevent SQL injection
+        let column = match field.as_str() {
+            "description" => "description",
+            "tags_json" => "tags_json",
+            "persona_md" => "persona_md",
+            "memories_md" => "memories_md",
+            _ => return Err(format!("Field '{}' is not editable", field)),
+        };
+
+        let sql = format!("UPDATE personas SET {} = ?1, updated_at = ?2 WHERE id = ?3", column);
+        conn.execute(&sql, rusqlite::params![value, now, id])
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

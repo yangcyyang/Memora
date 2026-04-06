@@ -1,5 +1,8 @@
 pub mod detect;
+pub mod imessage;
+pub mod ios_backup;
 pub mod wechat;
+pub mod wechat_win;
 
 use crate::core::models::{DetectResult, ParsedContent, RawMessage};
 use anyhow::{Context, Result};
@@ -7,11 +10,28 @@ use std::path::Path;
 
 /// Auto-detect format and parse a file
 pub fn detect_and_parse(path: &Path) -> Result<DetectResult> {
+    if path.is_dir() {
+        // Assume it might be an iOS backup dir
+        let mut dbs = ios_backup::find_wechat_dbs(path)?;
+        if let Some(db_path) = dbs.pop() {
+            let parsed = ios_backup::parse_ios_wechat_db(&db_path)?;
+            let target_name = auto_detect_target(&parsed.messages);
+            return Ok(DetectResult {
+                source: "ios_wechat".to_string(),
+                target_name: target_name.clone(),
+                parsed: ParsedContent { target_name, ..parsed },
+            });
+        }
+        anyhow::bail!("No valid chat database found in directory");
+    }
+
     let source = detect::detect_source(path)?;
     let parsed = match source.as_str() {
         "wechat_txt" => wechat::parse_txt(path)?,
         "wechat_html" => wechat::parse_html(path)?,
         "wechat_csv" => wechat::parse_csv(path)?,
+        "wechat_windows" => wechat_win::parse_wechat_windows_db(path, None)?,
+        "imessage" => imessage::parse_imessage(path)?,
         "generic_text" => parse_generic_text(path)?,
         other => anyhow::bail!("Unsupported format: {}", other),
     };

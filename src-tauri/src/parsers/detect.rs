@@ -39,6 +39,8 @@ pub fn detect_source(path: &Path) -> Result<String> {
         "db" if is_sqlite(path) => {
             if filename == "chat.db" {
                 Ok("imessage".to_string())
+            } else if filename.starts_with("MSG") || filename == "MicroMsg.db" || filename == "EnMicroMsg.db" {
+                Ok("wechat_windows".to_string())
             } else {
                 Ok("unknown".to_string())
             }

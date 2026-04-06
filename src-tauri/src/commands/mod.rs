@@ -1,6 +1,8 @@
+pub mod bridge;
 pub mod chat;
 pub mod correction;
 pub mod generator;
+pub mod ocr;
 pub mod parser;
 pub mod persona;
 pub mod settings;

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { AVATAR_EMOJI_PRESETS, PERSONA_TAG_PRESETS } from "@/lib/constants";
-import { detectAndParse, generatePersona, parsePastedText } from "@/lib/tauri";
+import { detectAndParse, generatePersona, parsePastedText, captureAndOcr } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { BasicInfo, GenerateProgress, ParsedContent } from "@/types";
 import { toast } from "sonner";
-import { ArrowLeft, FileUp } from "lucide-react";
+import { ArrowLeft, FileUp, ScanText } from "lucide-react";
 
 interface Props {
   onBack: () => void;
@@ -73,6 +73,19 @@ export function CreateWizard({ onBack, onComplete }: Props) {
     }
   };
 
+  const handleCapture = async () => {
+    try {
+      toast.info("请在屏幕上框选聊天记录...", { duration: 3000 });
+      const text = await captureAndOcr();
+      if (text.trim()) {
+        setPastedText(prev => prev ? prev + "\n" + text : text);
+        toast.success("已提取屏幕文字，请点击识别");
+      }
+    } catch (e) {
+      toast.error(`OCR提取失败: ${e}`);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!name.trim()) {
       toast.error("请输入 TA 的昵称");
@@ -80,6 +93,7 @@ export function CreateWizard({ onBack, onComplete }: Props) {
     }
     setGenerating(true);
     setStep(3);
+    setProgress(null);
 
     const unlisten = await listen<GenerateProgress>("generate://progress", (event) => {
       setProgress(event.payload);
@@ -95,8 +109,11 @@ export function CreateWizard({ onBack, onComplete }: Props) {
       const contents = parsed ? [parsed] : [];
       const result = await generatePersona(basicInfo, contents);
       toast.success(result.summary);
-      onComplete(result.persona_id);
+      // Brief pause so user sees "完成！" before navigation
+      await new Promise((r) => setTimeout(r, 800));
+      await onComplete(result.persona_id);
     } catch (e) {
+      console.error("Generate failed:", e);
       toast.error(`生成失败: ${e}`);
       setStep(2);
     } finally {
@@ -226,12 +243,20 @@ export function CreateWizard({ onBack, onComplete }: Props) {
               有聊天记录会让 AI 更像 TA。没有的话，仅用描述和标签生成
             </p>
 
-            {/* File import button */}
-            <button type="button" onClick={handleFileImport} disabled={parsing} style={styles.fileDropBtn}>
-              <FileUp size={24} style={{ color: "var(--color-rose-400)" }} />
-              <span style={{ fontWeight: 500 }}>选择聊天记录文件</span>
-              <span className="text-caption">支持 WeChat 导出的 .txt / .html / .csv</span>
-            </button>
+            {/* Action buttons */}
+            <div style={{ display: "flex", gap: 12 }}>
+              <button type="button" onClick={handleFileImport} disabled={parsing} style={{...styles.fileDropBtn, flex: 1}}>
+                <FileUp size={24} style={{ color: "var(--color-rose-400)" }} />
+                <span style={{ fontWeight: 500 }}>选择聊天文件</span>
+                <span className="text-caption">.txt / .html 等</span>
+              </button>
+
+              <button type="button" onClick={handleCapture} disabled={parsing} style={{...styles.fileDropBtn, flex: 1}}>
+                <ScanText size={24} style={{ color: "var(--color-sage-500)" }} />
+                <span style={{ fontWeight: 500 }}>框选屏幕文字</span>
+                <span className="text-caption">使用 macOS 截图 OCR</span>
+              </button>
+            </div>
 
             <div style={styles.divider}>
               <span className="text-caption">或者直接粘贴</span>
