@@ -13,7 +13,7 @@ import type {
 } from "@/types";
 
 // ── Settings ──
-export const getSettings = () => invoke<AppSettings>("get_settings");
+export const getSettings = (provider?: string) => invoke<AppSettings>("get_settings", { provider });
 
 export const saveSettings = (provider: string, api_key: string, base_url: string, model: string) =>
   invoke("save_settings", { provider, apiKey: api_key, baseUrl: base_url, model });

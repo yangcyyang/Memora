@@ -27,6 +27,19 @@ pub struct AiConfig {
     pub base_url: String,
     pub api_key: String,
     pub model: String,
+    
+    #[serde(default)]
+    pub providers: std::collections::HashMap<String, ProviderConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProviderConfig {
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub model: String,
 }
 
 impl Default for AiConfig {
@@ -37,6 +50,7 @@ impl Default for AiConfig {
             base_url: String::new(),
             api_key: String::new(),
             model: "gpt-4o".to_string(),
+            providers: std::collections::HashMap::new(),
         }
     }
 }
@@ -110,6 +124,9 @@ pub fn load_config() -> AiConfig {
         Ok(content) => match serde_json::from_str::<AiConfig>(&content) {
             Ok(mut config) => {
                 config.api_key = decrypt_api_key(&config.api_key);
+                for p in config.providers.values_mut() {
+                    p.api_key = decrypt_api_key(&p.api_key);
+                }
                 config
             }
             Err(err) => {
@@ -131,6 +148,9 @@ pub fn save_config(config: &AiConfig) -> Result<()> {
     }
     let mut config_to_save = config.clone();
     config_to_save.api_key = encrypt_api_key(&config_to_save.api_key);
+    for p in config_to_save.providers.values_mut() {
+        p.api_key = encrypt_api_key(&p.api_key);
+    }
 
     let content =
         serde_json::to_string_pretty(&config_to_save).context("Failed to serialize config")?;
@@ -162,6 +182,16 @@ fn get_http_client() -> Result<reqwest::Client> {
 
     *guard = Some(client.clone());
     Ok(client)
+}
+
+/// Normalize Anthropic base URL: ensure it ends with /v1 so we can append /messages
+fn anthropic_messages_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{}/messages", base)
+    } else {
+        format!("{}/v1/messages", base)
+    }
 }
 
 // ── Chat Completion (Non-streaming) ─────────────────────────────────
@@ -211,7 +241,8 @@ struct AnthropicResponse {
 
 #[derive(Deserialize)]
 struct AnthropicContent {
-    text: String,
+    text: Option<String>,
+    thinking: Option<String>,
 }
 
 /// Non-streaming chat completion for persona generation
@@ -225,10 +256,7 @@ pub async fn chat_completion(
 
     match config.api_format {
         ApiFormat::Anthropic => {
-            let url = format!(
-                "{}/messages",
-                config.base_url.trim_end_matches('/')
-            );
+            let url = anthropic_messages_url(&config.base_url);
             let body = AnthropicRequest {
                 model: config.model.clone(),
                 system: system_prompt.to_string(),
@@ -243,6 +271,7 @@ pub async fn chat_completion(
             let resp = client
                 .post(&url)
                 .header("x-api-key", &config.api_key)
+                .header("authorization", format!("Bearer {}", config.api_key))
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")
                 .json(&body)
@@ -258,11 +287,22 @@ pub async fn chat_completion(
 
             let parsed: AnthropicResponse =
                 serde_json::from_str(&text).context("Failed to parse Anthropic response")?;
-            parsed
-                .content
-                .first()
-                .map(|c| c.text.clone())
-                .ok_or_else(|| anyhow::anyhow!("Empty Anthropic response"))
+                
+            let mut result = None;
+            let mut fallback = None;
+            
+            for c in parsed.content {
+                if let Some(t) = c.text {
+                    result = Some(t);
+                    break;
+                } else if let Some(th) = c.thinking {
+                    if fallback.is_none() {
+                        fallback = Some(th);
+                    }
+                }
+            }
+            
+            result.or(fallback).ok_or_else(|| anyhow::anyhow!("Empty Anthropic response"))
         }
         ApiFormat::Openai | ApiFormat::Local => {
             let url = format!(
@@ -337,7 +377,7 @@ pub async fn chat_completion_stream(
                 });
             }
 
-            let url = format!("{}/messages", config.base_url.trim_end_matches('/'));
+            let url = anthropic_messages_url(&config.base_url);
 
             #[derive(Serialize)]
             struct StreamReq {
@@ -361,6 +401,7 @@ pub async fn chat_completion_stream(
             let resp = client
                 .post(&url)
                 .header("x-api-key", &config.api_key)
+                .header("authorization", format!("Bearer {}", config.api_key))
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")
                 .json(&body)
@@ -503,8 +544,9 @@ pub async fn validate_key(config: &AiConfig) -> Result<bool> {
     match chat_completion(&test_config, "You are a test.", "Say hi", 5).await {
         Ok(_) => Ok(true),
         Err(e) => {
-            debug!("API key validation failed: {}", e);
-            Ok(false)
+            let msg = format!("{}", e);
+            warn!("API key validation failed: {}", msg);
+            Err(anyhow::anyhow!("{}", msg))
         }
     }
 }

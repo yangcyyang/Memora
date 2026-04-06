@@ -1,6 +1,6 @@
 [package]
 name = "memora"
-version = "0.1.0"
+version = "0.0.1"
 description = "Memora — AI 记忆伴侣"
 authors = ["Memora"]
 edition = "2024"
@@ -47,6 +47,7 @@ csv = "1"
 tauri-plugin-clipboard-manager = "2"
 arboard = "3.6.1"
 tokio-tungstenite = "0.26"
+tauri-plugin-updater = "2"
 
 [dev-dependencies]
 tempfile = "3"

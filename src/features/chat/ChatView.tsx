@@ -8,6 +8,49 @@ import { SessionSidebar } from "./SessionSidebar";
 import { CorrectionDialog } from "./CorrectionDialog";
 import { MarkdownBubble } from "./MarkdownBubble";
 
+// ── WeChat-style timestamp formatting ──
+const WEEKDAYS = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+const TIME_GAP_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+function formatChatTimestamp(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+  const weekAgoStart = new Date(todayStart.getTime() - 6 * 86400000);
+
+  const hh = date.getHours().toString().padStart(2, "0");
+  const mm = date.getMinutes().toString().padStart(2, "0");
+  const time = `${hh}:${mm}`;
+
+  if (date >= todayStart) {
+    return time;                         // e.g. "14:23"
+  }
+  if (date >= yesterdayStart) {
+    return `昨天 ${time}`;                // e.g. "昨天 20:15"
+  }
+  if (date >= weekAgoStart) {
+    return `${WEEKDAYS[date.getDay()]} ${time}`;  // e.g. "星期三 09:30"
+  }
+  // Older: show full date
+  const y = date.getFullYear();
+  const M = date.getMonth() + 1;
+  const d = date.getDate();
+  if (y === now.getFullYear()) {
+    return `${M}月${d}日 ${time}`;        // e.g. "3月15日 09:30"
+  }
+  return `${y}年${M}月${d}日 ${time}`;    // e.g. "2025年12月1日 09:30"
+}
+
+/** Returns true if we should insert a timestamp chip before this message. */
+function shouldShowTimestamp(current: ChatMessage, prev: ChatMessage | null): boolean {
+  if (!prev) return true;  // always show timestamp on first message
+  const cur = new Date(current.created_at).getTime();
+  const pre = new Date(prev.created_at).getTime();
+  return cur - pre >= TIME_GAP_THRESHOLD_MS;
+}
+
 interface Props {
   personaId: string;
   onBack: () => void;
@@ -195,33 +238,42 @@ export function ChatView({ personaId, onBack, onProfile }: Props) {
           </div>
         )}
 
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            style={{
-              ...styles.bubbleRow,
-              justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-            }}
-          >
+        {messages.map((msg, idx) => (
+          <div key={msg.id}>
+            {/* WeChat-style timestamp chip */}
+            {shouldShowTimestamp(msg, idx > 0 ? messages[idx - 1] : null) && (
+              <div style={styles.timestampRow}>
+                <span style={styles.timestampChip}>
+                  {formatChatTimestamp(msg.created_at)}
+                </span>
+              </div>
+            )}
             <div
               style={{
-                ...styles.bubble,
-                ...(msg.role === "user" ? styles.userBubble : styles.assistantBubble),
-                position: "relative",
+                ...styles.bubbleRow,
+                justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
               }}
             >
-              <MarkdownBubble content={msg.content} isUser={msg.role === "user"} />
-              {/* Correction button for assistant messages */}
-              {msg.role === "assistant" && (
-                <button
-                  type="button"
-                  onClick={() => setCorrectionTarget(msg.content)}
-                  style={styles.correctBtn}
-                  title="纠正这条回复"
-                >
-                  <Edit3 size={11} />
-                </button>
-              )}
+              <div
+                style={{
+                  ...styles.bubble,
+                  ...(msg.role === "user" ? styles.userBubble : styles.assistantBubble),
+                  position: "relative",
+                }}
+              >
+                <MarkdownBubble content={msg.content} isUser={msg.role === "user"} />
+                {/* Correction button for assistant messages */}
+                {msg.role === "assistant" && (
+                  <button
+                    type="button"
+                    onClick={() => setCorrectionTarget(msg.content)}
+                    style={styles.correctBtn}
+                    title="纠正这条回复"
+                  >
+                    <Edit3 size={11} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -287,6 +339,18 @@ const styles: Record<string, React.CSSProperties> = {
   headerInfo: { display: "flex", alignItems: "center", gap: 10 },
   messagesArea: { flex: 1, overflow: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 8 },
   emptyChat: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, opacity: 0.7 },
+  timestampRow: { display: "flex", justifyContent: "center", padding: "12px 0 6px", animation: "fade-in 400ms ease both" },
+  timestampChip: {
+    fontSize: "0.72rem",
+    color: "var(--color-earth-400)",
+    background: "var(--color-cream-200)",
+    padding: "3px 12px",
+    borderRadius: "var(--radius-full)",
+    letterSpacing: "0.02em",
+    fontVariantNumeric: "tabular-nums",
+    userSelect: "none" as const,
+    lineHeight: 1.6,
+  },
   bubbleRow: { display: "flex", width: "100%", animation: "slide-up 300ms var(--ease-out-expo) both" },
   bubble: { maxWidth: "78%", padding: "10px 16px", borderRadius: "var(--radius-lg)", fontSize: "0.95rem", lineHeight: 1.7 },
   userBubble: { background: "var(--color-rose-400)", color: "white", borderBottomRightRadius: "var(--radius-sm)" },

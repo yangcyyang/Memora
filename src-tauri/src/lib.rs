@@ -44,7 +44,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(commands::updater::PendingUpdate::new())
         .invoke_handler(tauri::generate_handler![
+            // ── Updater ──
+            commands::updater::check_app_update,
+            commands::updater::download_and_install_update,
+            commands::updater::restart_after_update,
             // ── Settings ──
             commands::settings::get_settings,
             commands::settings::save_settings,

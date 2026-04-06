@@ -21,3 +21,6 @@ src-tauri/target/
 .agents/
 .gemini/
 .claude/
+
+# Keys
+src-tauri/keys/
