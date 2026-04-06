@@ -90,3 +90,14 @@ export type AppView =
   | "chat"
   | "settings"
   | "profile";
+
+export interface VersionSummary {
+  version: number;
+  created_at: string;
+}
+
+export interface CorrectionResult {
+  success: boolean;
+  target: string;
+  version: number;
+}

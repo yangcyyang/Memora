@@ -1,16 +1,17 @@
 import { useEffect } from "react";
 import type { PersonaSummary } from "@/types";
-import { Settings } from "lucide-react";
+import { Settings, User } from "lucide-react";
 
 interface Props {
   personas: PersonaSummary[];
   onCreateNew: () => void;
   onSelectPersona: (id: string) => void;
+  onViewProfile?: (id: string) => void;
   onSettings: () => void;
   onRefresh: () => void;
 }
 
-export function DashboardView({ personas, onCreateNew, onSelectPersona, onSettings, onRefresh }: Props) {
+export function DashboardView({ personas, onCreateNew, onSelectPersona, onViewProfile, onSettings, onRefresh }: Props) {
   useEffect(() => {
     onRefresh();
   }, []);
@@ -83,6 +84,16 @@ export function DashboardView({ personas, onCreateNew, onSelectPersona, onSettin
                     </span>
                   )}
                 </div>
+                {onViewProfile && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onViewProfile(p.id); }}
+                    style={styles.profileBtn}
+                    title="查看详情"
+                  >
+                    <User size={14} />
+                  </button>
+                )}
               </button>
             ))}
           </div>
@@ -183,6 +194,7 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: 180,
   },
   personaCard: {
+    position: "relative" as const,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -211,5 +223,22 @@ const styles: Record<string, React.CSSProperties> = {
   cardContent: {
     display: "flex",
     flexDirection: "column",
+  },
+  profileBtn: {
+    position: "absolute" as const,
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: "50%",
+    border: "none",
+    background: "var(--color-cream-200)",
+    color: "var(--color-earth-500)",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: 0.6,
+    transition: "opacity var(--duration-fast)",
   },
 };

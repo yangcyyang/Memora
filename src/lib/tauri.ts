@@ -8,6 +8,7 @@ import type {
   Persona,
   PersonaSummary,
   SessionSummary,
+  VersionSummary,
 } from "@/types";
 
 // ── Settings ──
@@ -38,6 +39,9 @@ export const deletePersona = (id: string) => invoke("delete_persona", { id });
 
 export const rollbackPersona = (id: string, version: number) =>
   invoke("rollback_persona", { id, version });
+
+export const getPersonaVersions = (id: string) =>
+  invoke<VersionSummary[]>("get_persona_versions", { id });
 
 // ── Generator ──
 export const generatePersona = (basicInfo: BasicInfo, parsedContents: ParsedContent[]) =>

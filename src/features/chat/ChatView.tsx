@@ -8,9 +8,10 @@ import { toast } from "sonner";
 interface Props {
   personaId: string;
   onBack: () => void;
+  onProfile?: () => void;
 }
 
-export function ChatView({ personaId, onBack }: Props) {
+export function ChatView({ personaId, onBack, onProfile }: Props) {
   const [persona, setPersona] = useState<Persona | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -109,7 +110,7 @@ export function ChatView({ personaId, onBack }: Props) {
         <button type="button" onClick={onBack} style={styles.backBtn}>
           <ArrowLeft size={18} />
         </button>
-        <div style={styles.headerInfo}>
+        <div style={{ ...styles.headerInfo, cursor: onProfile ? "pointer" : "default" }} onClick={onProfile}>
           <span style={{ fontSize: "1.4rem" }}>{persona.avatar_emoji}</span>
           <span style={{ fontWeight: 500, fontSize: "1.05rem" }}>{persona.name}</span>
         </div>

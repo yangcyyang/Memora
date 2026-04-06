@@ -7,13 +7,13 @@ import { DashboardView } from "@/features/dashboard/DashboardView";
 import { CreateWizard } from "@/features/create/CreateWizard";
 import { ChatView } from "@/features/chat/ChatView";
 import { SettingsView } from "@/features/settings/SettingsView";
+import { ProfileView } from "@/features/profile/ProfileView";
 
 export default function App() {
   const [view, setView] = useState<AppView | "loading">("loading");
   const [activePersonaId, setActivePersonaId] = useState<string | null>(null);
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
 
-  // Initial load: check settings and personas
   useEffect(() => {
     (async () => {
       try {
@@ -83,6 +83,7 @@ export default function App() {
           personas={personas}
           onCreateNew={() => setView("create")}
           onSelectPersona={(id) => navigateTo("chat", id)}
+          onViewProfile={(id) => navigateTo("profile", id)}
           onSettings={() => setView("settings")}
           onRefresh={refreshPersonas}
         />
@@ -102,6 +103,19 @@ export default function App() {
         <ChatView
           personaId={activePersonaId}
           onBack={() => {
+            refreshPersonas();
+            setView("dashboard");
+          }}
+          onProfile={() => navigateTo("profile", activePersonaId)}
+        />
+      )}
+
+      {view === "profile" && activePersonaId && (
+        <ProfileView
+          personaId={activePersonaId}
+          onBack={() => setView("dashboard")}
+          onChat={() => navigateTo("chat", activePersonaId)}
+          onDeleted={() => {
             refreshPersonas();
             setView("dashboard");
           }}
