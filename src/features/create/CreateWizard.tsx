@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { AVATAR_EMOJI_PRESETS, PERSONA_TAG_PRESETS } from "@/lib/constants";
-import { generatePersona, parsePastedText } from "@/lib/tauri";
+import { detectAndParse, generatePersona, parsePastedText } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { BasicInfo, GenerateProgress, ParsedContent } from "@/types";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileUp } from "lucide-react";
 
 interface Props {
   onBack: () => void;
@@ -41,6 +42,32 @@ export function CreateWizard({ onBack, onComplete }: Props) {
       toast.success(`识别到 ${result.message_count} 条消息`);
     } catch (e) {
       toast.error(`解析失败: ${e}`);
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const handleFileImport = async () => {
+    try {
+      const selected = await open({
+        multiple: true,
+        filters: [
+          { name: "聊天记录", extensions: ["txt", "html", "htm", "csv", "json"] },
+          { name: "所有文件", extensions: ["*"] },
+        ],
+      });
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      setParsing(true);
+      const results = await detectAndParse(paths);
+      if (results.length > 0 && results[0].parsed.message_count > 0) {
+        setParsed(results[0].parsed);
+        toast.success(`从文件识别到 ${results[0].parsed.message_count} 条消息`);
+      } else {
+        toast.error("未能从文件中识别出聊天记录");
+      }
+    } catch (e) {
+      toast.error(`文件导入失败: ${e}`);
     } finally {
       setParsing(false);
     }
@@ -199,8 +226,18 @@ export function CreateWizard({ onBack, onComplete }: Props) {
               有聊天记录会让 AI 更像 TA。没有的话，仅用描述和标签生成
             </p>
 
+            {/* File import button */}
+            <button type="button" onClick={handleFileImport} disabled={parsing} style={styles.fileDropBtn}>
+              <FileUp size={24} style={{ color: "var(--color-rose-400)" }} />
+              <span style={{ fontWeight: 500 }}>选择聊天记录文件</span>
+              <span className="text-caption">支持 WeChat 导出的 .txt / .html / .csv</span>
+            </button>
+
+            <div style={styles.divider}>
+              <span className="text-caption">或者直接粘贴</span>
+            </div>
+
             <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>把微信聊天记录粘贴到这里</label>
               <textarea
                 placeholder={"2024-03-15 14:32 小美\n今天好累啊\n\n2024-03-15 14:33 我\n怎么了宝\n..."}
                 value={pastedText}
@@ -290,4 +327,6 @@ const styles: Record<string, React.CSSProperties> = {
   generateOrb: { width: 100, height: 100, borderRadius: "50%", background: "var(--color-cream-200)", display: "flex", alignItems: "center", justifyContent: "center" },
   progressTrack: { width: 200, height: 4, borderRadius: 2, background: "var(--color-cream-300)", overflow: "hidden" as const, marginTop: 16 },
   progressFill: { height: "100%", background: "var(--color-rose-500)", borderRadius: 2, transition: "width 0.5s var(--ease-out-quart)" },
+  fileDropBtn: { width: "100%", display: "flex", flexDirection: "column" as const, alignItems: "center", gap: 6, padding: "28px 20px", border: "2px dashed var(--color-cream-300)", borderRadius: "var(--radius-lg)", background: "var(--color-cream-100)", cursor: "pointer", fontFamily: "var(--font-body)", transition: "all var(--duration-normal) var(--ease-out-quart)", marginBottom: 0 },
+  divider: { display: "flex", alignItems: "center", gap: 16, margin: "20px 0", width: "100%" },
 };

@@ -3,37 +3,30 @@ import { Toaster } from "sonner";
 import type { AppView, PersonaSummary } from "@/types";
 import { getSettings, listPersonas } from "@/lib/tauri";
 import { WelcomeView } from "@/features/onboarding/WelcomeView";
-import { ApiKeySetup } from "@/features/onboarding/ApiKeySetup";
 import { DashboardView } from "@/features/dashboard/DashboardView";
 import { CreateWizard } from "@/features/create/CreateWizard";
 import { ChatView } from "@/features/chat/ChatView";
 import { SettingsView } from "@/features/settings/SettingsView";
 
 export default function App() {
-  const [view, setView] = useState<AppView>("welcome");
-  const [hasApiKey, setHasApiKey] = useState(false);
+  const [view, setView] = useState<AppView | "loading">("loading");
   const [activePersonaId, setActivePersonaId] = useState<string | null>(null);
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Initial load: check settings and personas
   useEffect(() => {
     (async () => {
       try {
         const settings = await getSettings();
-        setHasApiKey(settings.has_api_key);
-
         if (settings.has_api_key) {
           const list = await listPersonas();
           setPersonas(list);
-          setView(list.length > 0 ? "dashboard" : "dashboard");
+          setView("dashboard");
         } else {
           setView("welcome");
         }
       } catch {
         setView("welcome");
-      } finally {
-        setLoading(false);
       }
     })();
   }, []);
@@ -52,21 +45,10 @@ export default function App() {
     if (personaId) setActivePersonaId(personaId);
   };
 
-  if (loading) {
+  if (view === "loading") {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: "100%",
-          height: "100vh",
-          fontFamily: "var(--font-display)",
-          fontSize: "1.5rem",
-          color: "var(--color-earth-500)",
-        }}
-      >
-        <span style={{ animation: "pulse-soft 2s ease-in-out infinite" }}>
+      <div style={styles.loading}>
+        <span style={{ animation: "pulse-soft 2s ease-in-out infinite", fontFamily: "var(--font-display)", fontSize: "1.5rem", color: "var(--color-earth-500)" }}>
           Memora
         </span>
       </div>
@@ -88,13 +70,9 @@ export default function App() {
       />
 
       {view === "welcome" && (
-        <WelcomeView onContinue={() => setView(hasApiKey ? "dashboard" : "welcome")} onSetupKey={() => setView("welcome")} />
-      )}
-
-      {view === "welcome" && !hasApiKey && (
-        <ApiKeySetup
+        <WelcomeView
           onComplete={() => {
-            setHasApiKey(true);
+            refreshPersonas();
             setView("dashboard");
           }}
         />
@@ -133,9 +111,19 @@ export default function App() {
       {view === "settings" && (
         <SettingsView
           onBack={() => setView("dashboard")}
-          onApiKeyChanged={() => setHasApiKey(true)}
+          onApiKeyChanged={() => {}}
         />
       )}
     </>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  loading: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+    height: "100vh",
+  },
+};
