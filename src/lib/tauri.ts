@@ -2,13 +2,18 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
   BasicInfo,
+  CacheStats,
   ChatMessage,
   CorrectionResult,
   GenerateResult,
   ParsedContent,
   Persona,
   PersonaSummary,
+  PersonaVoice,
   SessionSummary,
+  TtsProviderInfo,
+  TtsSettings,
+  UpdateCheckResult,
   VersionSummary,
 } from "@/types";
 
@@ -39,6 +44,7 @@ export const listPersonas = () => invoke<PersonaSummary[]>("list_personas");
 export const getPersona = (id: string) => invoke<Persona>("get_persona", { id });
 
 export const deletePersona = (id: string) => invoke("delete_persona", { id });
+export const appendClipboardCorpus = (id: string, content: string) => invoke("append_clipboard_corpus", { id, content });
 
 export const rollbackPersona = (id: string, version: number) =>
   invoke("rollback_persona", { id, version });
@@ -76,3 +82,45 @@ export const startWsBridge = (port?: number) =>
 
 export const getWsBridgePort = () =>
   invoke<number>("get_ws_bridge_port");
+
+export const toggleClipboardWatcher = (enabled: boolean) =>
+  invoke("toggle_clipboard_watcher", { enabled });
+
+// ── TTS (Voice) ──
+export const getTtsSettings = () => invoke<TtsSettings>("get_tts_settings");
+
+export const saveTtsSettings = (provider: string, apiKey: string, groupId: string, language: string, cacheLimitMb: number) =>
+  invoke("save_tts_settings", { provider, apiKey, groupId, language, cacheLimitMb });
+
+export const listTtsProviders = () => invoke<TtsProviderInfo[]>("list_tts_providers");
+
+export const uploadAndCloneVoice = (personaId: string, audioPath: string) =>
+  invoke<{ voice_id: string }>("upload_and_clone_voice", { personaId, audioPath });
+
+export const getPersonaVoice = (personaId: string) =>
+  invoke<PersonaVoice | null>("get_persona_voice", { personaId });
+
+export const setPersonaVoice = (personaId: string, provider: string, voiceId: string, language: string) =>
+  invoke("set_persona_voice", { personaId, provider, voiceId, language });
+
+export const removePersonaVoice = (personaId: string) =>
+  invoke("remove_persona_voice", { personaId });
+
+export const speakText = (text: string, personaId: string) =>
+  invoke<string>("speak_text", { text, personaId });
+
+export const speakTextStream = (text: string, personaId: string) =>
+  invoke<string>("speak_text_stream", { text, personaId });
+
+export const getCacheStats = () => invoke<CacheStats>("get_cache_stats");
+
+export const checkFfmpeg = () => invoke<boolean>("check_ffmpeg");
+
+export const clearAudioCache = () => invoke("clear_audio_cache");
+
+// ── Updater ──
+export const checkAppUpdate = () => invoke<UpdateCheckResult>("check_app_update");
+
+export const downloadAndInstallUpdate = () => invoke("download_and_install_update");
+
+export const restartAfterUpdate = () => invoke("restart_after_update");

@@ -1,8 +1,64 @@
+//! Database connection pool and schema initialisation.
+
 use anyhow::{Context, Result};
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::Connection;
+use std::path::Path;
+use std::sync::LazyLock;
 use tracing::info;
 
-use super::db_pool::memora_pool;
 use super::paths;
+
+/// Pool type alias used throughout the codebase.
+pub type DbPool = Pool<SqliteConnectionManager>;
+
+/// Create a connection pool for a SQLite database file.
+pub fn create_pool(db_path: &Path, max_size: u32) -> Result<DbPool> {
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).context("Failed to create DB directory")?;
+    }
+
+    let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA busy_timeout=5000;
+             PRAGMA foreign_keys=ON;",
+        )
+    });
+
+    Pool::builder()
+        .max_size(max_size)
+        .build(manager)
+        .context("Failed to build r2d2 connection pool")
+}
+
+/// Run a blocking closure on a pooled connection via `spawn_blocking`.
+pub async fn run_blocking<F, T>(pool: &'static DbPool, f: F) -> Result<T>
+where
+    F: FnOnce(&Connection) -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    let pool = pool.clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = pool
+            .get()
+            .context("Failed to get DB connection from pool")?;
+        f(&conn)
+    })
+    .await
+    .context("spawn_blocking join error")?
+}
+
+// ── Main Memora Pool ────────────────────────────────────────────────
+
+static MEMORA_POOL: LazyLock<DbPool> = LazyLock::new(|| {
+    create_pool(&paths::db_path(), 4).expect("Memora DB pool init failed")
+});
+
+pub fn memora_pool() -> &'static DbPool {
+    &MEMORA_POOL
+}
 
 /// Initialize the database with all required tables
 pub fn initialize_db() -> Result<()> {
@@ -76,6 +132,16 @@ pub fn initialize_db() -> Result<()> {
         CREATE TABLE IF NOT EXISTS settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        );
+
+        -- Persona 语音绑定（每个 Persona 可绑不同 provider 的 voice_id）
+        CREATE TABLE IF NOT EXISTS persona_voices (
+            persona_id TEXT PRIMARY KEY REFERENCES personas(id) ON DELETE CASCADE,
+            provider   TEXT NOT NULL,
+            voice_id   TEXT NOT NULL,
+            language   TEXT NOT NULL DEFAULT 'zh-CN',
+            model      TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
         );
         "#,
     )

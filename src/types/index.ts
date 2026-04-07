@@ -101,3 +101,45 @@ export interface CorrectionResult {
   target: string;
   version: number;
 }
+
+// ── TTS ─────────────────────────────────────────────────────────────
+
+export interface TtsSettings {
+  active_provider: string;
+  has_api_key: boolean;
+  api_key: string;
+  group_id: string;
+  default_language: string;
+  cache_limit_mb: number;
+  cache_stats: CacheStats;
+}
+
+export interface CacheStats {
+  file_count: number;
+  total_size_mb: number;
+}
+
+export interface TtsProviderInfo {
+  id: string;
+  name: string;
+  supports_clone: boolean;
+  supports_streaming: boolean;
+  languages: Array<{ code: string; name: string }>;
+}
+
+export interface PersonaVoice {
+  persona_id: string;
+  provider: string;
+  voice_id: string;
+  language: string;
+  model: string;
+}
+
+// ── Updater ─────────────────────────────────────────────────────────
+
+export interface UpdateCheckResult {
+  available: boolean;
+  version: string | null;
+  date: string | null;
+  body: string | null;
+}

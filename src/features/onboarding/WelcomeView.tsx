@@ -1,13 +1,12 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { PROVIDER_OPTIONS } from "@/lib/constants";
 import { saveSettings, validateApiKey } from "@/lib/tauri";
 import { toast } from "sonner";
 
-interface Props {
-  onComplete: () => void;
-}
-
-export function WelcomeView({ onComplete }: Props) {
+export function WelcomeView() {
+  const navigate = useNavigate();
+  const onComplete = () => navigate({ to: "/" });
   const [phase, setPhase] = useState<"splash" | "provider" | "key">("splash");
   const [provider, setProvider] = useState(PROVIDER_OPTIONS[0]);
   const [apiKey, setApiKey] = useState("");

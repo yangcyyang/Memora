@@ -1,9 +1,0 @@
-pub mod ai_provider;
-pub mod clipboard;
-pub mod compaction;
-pub mod db_pool;
-pub mod models;
-pub mod paths;
-pub mod prompts;
-pub mod storage;
-pub mod ws_bridge;

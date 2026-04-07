@@ -18,9 +18,20 @@ pub fn settings_path() -> PathBuf {
     data_dir().join("settings.json")
 }
 
+/// TTS settings file (contains encrypted TTS API keys)
+pub fn tts_settings_path() -> PathBuf {
+    data_dir().join("tts_settings.json")
+}
+
+/// Audio cache directory for TTS output
+pub fn audio_cache_dir() -> PathBuf {
+    data_dir().join("audio")
+}
+
 /// Ensure data directory exists
 pub fn ensure_dirs() -> Result<()> {
     let dir = data_dir();
     std::fs::create_dir_all(&dir).context("Failed to create Memora data directory")?;
+    std::fs::create_dir_all(audio_cache_dir()).context("Failed to create audio cache directory")?;
     Ok(())
 }

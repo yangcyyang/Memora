@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { listen } from "@tauri-apps/api/event";
-import { getPersona, getChatHistory, listChatSessions, newChatSession, sendMessage } from "@/lib/tauri";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getPersona, getChatHistory, listChatSessions, newChatSession, sendMessage, speakText, toggleClipboardWatcher, appendClipboardCorpus } from "@/lib/tauri";
 import type { ChatMessage, Persona } from "@/types";
-import { ArrowLeft, Send, Menu, Edit3 } from "lucide-react";
+import { ArrowLeft, Send, Menu, Edit3, Volume2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { SessionSidebar } from "./SessionSidebar";
 import { CorrectionDialog } from "./CorrectionDialog";
@@ -25,39 +27,35 @@ function formatChatTimestamp(isoString: string): string {
   const time = `${hh}:${mm}`;
 
   if (date >= todayStart) {
-    return time;                         // e.g. "14:23"
+    return time;
   }
   if (date >= yesterdayStart) {
-    return `昨天 ${time}`;                // e.g. "昨天 20:15"
+    return `昨天 ${time}`;
   }
   if (date >= weekAgoStart) {
-    return `${WEEKDAYS[date.getDay()]} ${time}`;  // e.g. "星期三 09:30"
+    return `${WEEKDAYS[date.getDay()]} ${time}`;
   }
-  // Older: show full date
   const y = date.getFullYear();
   const M = date.getMonth() + 1;
   const d = date.getDate();
   if (y === now.getFullYear()) {
-    return `${M}月${d}日 ${time}`;        // e.g. "3月15日 09:30"
+    return `${M}月${d}日 ${time}`;
   }
-  return `${y}年${M}月${d}日 ${time}`;    // e.g. "2025年12月1日 09:30"
+  return `${y}年${M}月${d}日 ${time}`;
 }
 
-/** Returns true if we should insert a timestamp chip before this message. */
 function shouldShowTimestamp(current: ChatMessage, prev: ChatMessage | null): boolean {
-  if (!prev) return true;  // always show timestamp on first message
+  if (!prev) return true;
   const cur = new Date(current.created_at).getTime();
   const pre = new Date(prev.created_at).getTime();
   return cur - pre >= TIME_GAP_THRESHOLD_MS;
 }
 
-interface Props {
-  personaId: string;
-  onBack: () => void;
-  onProfile?: () => void;
-}
-
-export function ChatView({ personaId, onBack, onProfile }: Props) {
+export function ChatView() {
+  const { personaId } = useParams({ strict: false }) as { personaId: string };
+  const navigate = useNavigate();
+  const onBack = () => navigate({ to: "/" });
+  const onProfile = () => navigate({ to: "/profile/$personaId", params: { personaId } });
   const [persona, setPersona] = useState<Persona | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -66,10 +64,71 @@ export function ChatView({ personaId, onBack, onProfile }: Props) {
   const [streamText, setStreamText] = useState("");
   const [showSidebar, setShowSidebar] = useState(false);
   const [correctionTarget, setCorrectionTarget] = useState<string | null>(null);
+  const [speakingMsgId, setSpeakingMsgId] = useState<number | null>(null);
+  const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isInitialLoad = useRef(true);
+
+  // ── TTS speak handler ──
+  const handleSpeak = useCallback(async (msg: ChatMessage) => {
+    // If already playing this message, stop it
+    if (speakingMsgId === msg.id && playingAudio) {
+      playingAudio.pause();
+      playingAudio.currentTime = 0;
+      setPlayingAudio(null);
+      setSpeakingMsgId(null);
+      return;
+    }
+    // Stop any currently playing audio
+    if (playingAudio) {
+      playingAudio.pause();
+      playingAudio.currentTime = 0;
+    }
+    setSpeakingMsgId(msg.id);
+    try {
+      const audioPath = await speakText(msg.content, personaId);
+      const audioUrl = convertFileSrc(audioPath);
+      const audio = new Audio(audioUrl);
+      audio.onended = () => { setSpeakingMsgId(null); setPlayingAudio(null); };
+      audio.onerror = () => { setSpeakingMsgId(null); setPlayingAudio(null); toast.error("播放失败"); };
+      setPlayingAudio(audio);
+      await audio.play();
+    } catch (e) {
+      toast.error(`语音合成失败: ${e}`);
+      setSpeakingMsgId(null);
+      setPlayingAudio(null);
+    }
+  }, [personaId, speakingMsgId, playingAudio]);
 
   // Load persona and determine session
+  useEffect(() => {
+    const isWatcherEnabled = localStorage.getItem("memora_clipboard_watcher") === "true";
+    if (isWatcherEnabled) toggleClipboardWatcher(true).catch(console.error);
+    const unlisten = listen<{ text: string }>("clipboard://chat-detected", (e) => {
+      toast("检测到剪贴板具有潜在聊天记录", {
+        description: "是否将其作为语料追加到当前人物的回忆中？",
+        action: {
+          label: "追加",
+          onClick: async () => {
+            try {
+              await appendClipboardCorpus(personaId, e.payload.text);
+              toast.success("已追加到共同记忆");
+            } catch (err) {
+              toast.error(`追加失败: ${err}`);
+            }
+          }
+        },
+        duration: 8000,
+      });
+    });
+
+    return () => {
+      if (isWatcherEnabled) toggleClipboardWatcher(false).catch(console.error);
+      unlisten.then((fn) => fn());
+    };
+  }, [personaId]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -97,6 +156,7 @@ export function ChatView({ personaId, onBack, onProfile }: Props) {
     (async () => {
       try {
         const history = await getChatHistory(personaId, sessionId, 100);
+        isInitialLoad.current = true;
         setMessages(history);
       } catch {
         setMessages([]);
@@ -106,7 +166,15 @@ export function ChatView({ personaId, onBack, onProfile }: Props) {
 
   // Scroll to bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isInitialLoad.current && messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView();
+      // Need a small timeout to ensure rendering is complete before disabling initial load
+      setTimeout(() => {
+        isInitialLoad.current = false;
+      }, 50);
+    } else if (!isInitialLoad.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, streamText]);
 
   const handleSend = useCallback(async () => {
@@ -211,7 +279,7 @@ export function ChatView({ personaId, onBack, onProfile }: Props) {
           <ArrowLeft size={18} />
         </button>
         <div
-          style={{ ...styles.headerInfo, cursor: onProfile ? "pointer" : "default" }}
+          style={{ ...styles.headerInfo, cursor: "pointer" }}
           onClick={onProfile}
         >
           <span style={{ fontSize: "1.4rem" }}>{persona.avatar_emoji}</span>
@@ -255,6 +323,7 @@ export function ChatView({ personaId, onBack, onProfile }: Props) {
               }}
             >
               <div
+                className="group"
                 style={{
                   ...styles.bubble,
                   ...(msg.role === "user" ? styles.userBubble : styles.assistantBubble),
@@ -262,16 +331,30 @@ export function ChatView({ personaId, onBack, onProfile }: Props) {
                 }}
               >
                 <MarkdownBubble content={msg.content} isUser={msg.role === "user"} />
-                {/* Correction button for assistant messages */}
+                {/* Action buttons for assistant messages */}
                 {msg.role === "assistant" && (
-                  <button
-                    type="button"
-                    onClick={() => setCorrectionTarget(msg.content)}
-                    style={styles.correctBtn}
-                    title="纠正这条回复"
-                  >
-                    <Edit3 size={11} />
-                  </button>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={styles.bubbleActions}>
+                    <button
+                      type="button"
+                      onClick={() => handleSpeak(msg)}
+                      style={styles.speakBtn}
+                      title="朗读这条消息"
+                    >
+                      {speakingMsgId === msg.id ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : (
+                        <Volume2 size={11} />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCorrectionTarget(msg.content)}
+                      style={styles.correctBtn}
+                      title="纠正这条回复"
+                    >
+                      <Edit3 size={11} />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -358,10 +441,26 @@ const styles: Record<string, React.CSSProperties> = {
   cursor: { color: "var(--color-rose-400)", animation: "pulse-soft 1s ease-in-out infinite" },
   typingBubble: { display: "flex", gap: 2, padding: "12px 18px", fontSize: "1.5rem", letterSpacing: 2 },
   dot: { animation: "typing-dot 1.4s ease-in-out infinite", display: "inline-block" },
-  correctBtn: {
-    position: "absolute",
+  bubbleActions: {
+    position: "absolute" as const,
     bottom: -6,
     right: -6,
+    display: "flex",
+    gap: 4,
+  },
+  speakBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: "50%",
+    border: "1.5px solid var(--color-lavender-300)",
+    background: "var(--color-cream-50)",
+    color: "var(--color-lavender-500)",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  correctBtn: {
     width: 22,
     height: 22,
     borderRadius: "50%",
@@ -372,8 +471,6 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    opacity: 0,
-    transition: "opacity var(--duration-fast)",
   },
   inputArea: { padding: "12px 16px 16px", borderTop: "1px solid var(--color-cream-200)", flexShrink: 0 },
   inputWrapper: { display: "flex", alignItems: "flex-end", gap: 8, background: "var(--color-cream-100)", borderRadius: "var(--radius-lg)", border: "1.5px solid var(--color-cream-300)", padding: "8px 12px" },

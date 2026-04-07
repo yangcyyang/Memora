@@ -6,4 +6,5 @@ pub mod ocr;
 pub mod parser;
 pub mod persona;
 pub mod settings;
+pub mod tts;
 pub mod updater;

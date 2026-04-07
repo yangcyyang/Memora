@@ -45,6 +45,8 @@
   /* ── Lavender (Subtle) ── */
   --color-lavender-300: oklch(82% 0.06 290);
   --color-lavender-400: oklch(72% 0.08 290);
+  --color-lavender-500: oklch(62% 0.12 290);
+  --color-lavender-600: oklch(52% 0.14 290);
 
   /* ── Spacing Scale (4pt base) ── */
   --spacing-xs: 4px;

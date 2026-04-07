@@ -1,4 +1,4 @@
-use crate::core::models::{ParsedContent, RawMessage};
+use crate::models::{ParsedContent, RawMessage};
 use anyhow::{Context, Result};
 use std::path::Path;
 

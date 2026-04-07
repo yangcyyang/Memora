@@ -1,18 +1,11 @@
 import { useEffect, useState } from "react";
+import { Outlet, useNavigate } from "@tanstack/react-router";
 import { Toaster } from "sonner";
-import type { AppView, PersonaSummary } from "@/types";
 import { getSettings, listPersonas } from "@/lib/tauri";
-import { WelcomeView } from "@/features/onboarding/WelcomeView";
-import { DashboardView } from "@/features/dashboard/DashboardView";
-import { CreateWizard } from "@/features/create/CreateWizard";
-import { ChatView } from "@/features/chat/ChatView";
-import { SettingsView } from "@/features/settings/SettingsView";
-import { ProfileView } from "@/features/profile/ProfileView";
 
 export default function App() {
-  const [view, setView] = useState<AppView | "loading">("loading");
-  const [activePersonaId, setActivePersonaId] = useState<string | null>(null);
-  const [personas, setPersonas] = useState<PersonaSummary[]>([]);
+  const navigate = useNavigate();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -20,35 +13,25 @@ export default function App() {
         const settings = await getSettings();
         if (settings.has_api_key) {
           const list = await listPersonas();
-          setPersonas(list);
-          setView("dashboard");
+          if (list.length > 0) {
+            navigate({ to: "/" });
+          } else {
+            navigate({ to: "/welcome" });
+          }
         } else {
-          setView("welcome");
+          navigate({ to: "/welcome" });
         }
       } catch {
-        setView("welcome");
+        navigate({ to: "/welcome" });
       }
+      setReady(true);
     })();
-  }, []);
+  }, [navigate]);
 
-  const refreshPersonas = async () => {
-    try {
-      const list = await listPersonas();
-      setPersonas(list);
-    } catch {
-      // ignore
-    }
-  };
-
-  const navigateTo = (v: AppView, personaId?: string) => {
-    setView(v);
-    if (personaId) setActivePersonaId(personaId);
-  };
-
-  if (view === "loading") {
+  if (!ready) {
     return (
-      <div style={styles.loading}>
-        <span style={{ animation: "pulse-soft 2s ease-in-out infinite", fontFamily: "var(--font-display)", fontSize: "1.5rem", color: "var(--color-earth-500)" }}>
+      <div className="flex items-center justify-center w-full h-screen">
+        <span className="animate-pulse font-[var(--font-display)] text-2xl text-[var(--color-earth-500)]">
           Memora
         </span>
       </div>
@@ -68,76 +51,7 @@ export default function App() {
           },
         }}
       />
-
-      {view === "welcome" && (
-        <WelcomeView
-          onComplete={() => {
-            refreshPersonas();
-            setView("dashboard");
-          }}
-        />
-      )}
-
-      {view === "dashboard" && (
-        <DashboardView
-          personas={personas}
-          onCreateNew={() => setView("create")}
-          onSelectPersona={(id) => navigateTo("chat", id)}
-          onViewProfile={(id) => navigateTo("profile", id)}
-          onSettings={() => setView("settings")}
-          onRefresh={refreshPersonas}
-        />
-      )}
-
-      {view === "create" && (
-        <CreateWizard
-          onBack={() => setView("dashboard")}
-          onComplete={async (personaId) => {
-            await refreshPersonas();
-            navigateTo("chat", personaId);
-          }}
-        />
-      )}
-
-      {view === "chat" && activePersonaId && (
-        <ChatView
-          personaId={activePersonaId}
-          onBack={() => {
-            refreshPersonas();
-            setView("dashboard");
-          }}
-          onProfile={() => navigateTo("profile", activePersonaId)}
-        />
-      )}
-
-      {view === "profile" && activePersonaId && (
-        <ProfileView
-          personaId={activePersonaId}
-          onBack={() => setView("dashboard")}
-          onChat={() => navigateTo("chat", activePersonaId)}
-          onDeleted={() => {
-            refreshPersonas();
-            setView("dashboard");
-          }}
-        />
-      )}
-
-      {view === "settings" && (
-        <SettingsView
-          onBack={() => setView("dashboard")}
-          onApiKeyChanged={() => {}}
-        />
-      )}
+      <Outlet />
     </>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  loading: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
-    height: "100vh",
-  },
-};

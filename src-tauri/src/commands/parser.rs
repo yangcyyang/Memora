@@ -1,4 +1,6 @@
-use crate::core::models::{DetectResult, ParsedContent};
+//! Parser commands.
+
+use crate::models::{DetectResult, ParsedContent};
 use crate::parsers;
 
 #[tauri::command]

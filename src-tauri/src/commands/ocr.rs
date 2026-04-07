@@ -1,8 +1,3 @@
-use anyhow::{Context, Result};
-use std::io::Write;
-use std::path::PathBuf;
-use std::process::Command;
-
 /// Swift script that uses MacOS native Vision.framework for offline OCR.
 const SWIFT_OCR_SCRIPT: &str = r#"
 import Cocoa
@@ -49,8 +44,10 @@ pub async fn capture_and_ocr() -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
-fn do_capture_and_ocr() -> Result<String> {
-    // 1. Ask MacOS to do an interactive bounding-box screenshot
+fn do_capture_and_ocr() -> anyhow::Result<String> {
+    use anyhow::Context;
+    use std::process::Command;
+
     let temp_dir = std::env::temp_dir();
     let img_path = temp_dir.join("memora_ocr_capture.png");
 
@@ -60,26 +57,23 @@ fn do_capture_and_ocr() -> Result<String> {
         .context("Failed to invoke screencapture")?;
 
     if !status.success() {
-        return Ok("".to_string()); // User likely cancelled the screenshot via Escape
+        return Ok("".to_string());
     }
 
     if !img_path.exists() {
         return Ok("".to_string());
     }
 
-    // 2. Write the Swift script to disk temporarily
     let script_path = temp_dir.join("memora_vision_ocr.swift");
     std::fs::write(&script_path, SWIFT_OCR_SCRIPT)
         .context("Failed to write transient swift script")?;
 
-    // 3. Execute the Swift script to perform Vision OCR
     let output = Command::new("/usr/bin/swift")
         .arg(&script_path)
         .arg(&img_path)
         .output()
         .context("Failed to execute swift OCR script")?;
 
-    // Clean up
     let _ = std::fs::remove_file(&img_path);
     let _ = std::fs::remove_file(&script_path);
 

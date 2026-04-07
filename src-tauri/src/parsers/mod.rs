@@ -4,7 +4,7 @@ pub mod ios_backup;
 pub mod wechat;
 pub mod wechat_win;
 
-use crate::core::models::{DetectResult, ParsedContent, RawMessage};
+use crate::models::{DetectResult, ParsedContent, RawMessage};
 use anyhow::{Context, Result};
 use std::path::Path;
 

@@ -1,20 +1,19 @@
-import { useEffect } from "react";
-import type { PersonaSummary } from "@/types";
+import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { listPersonas } from "@/lib/tauri";
 import { Settings, User } from "lucide-react";
 
-interface Props {
-  personas: PersonaSummary[];
-  onCreateNew: () => void;
-  onSelectPersona: (id: string) => void;
-  onViewProfile?: (id: string) => void;
-  onSettings: () => void;
-  onRefresh: () => void;
-}
+export function DashboardView() {
+  const navigate = useNavigate();
+  const { data: personas = [] } = useQuery({
+    queryKey: ["personas"],
+    queryFn: listPersonas,
+  });
 
-export function DashboardView({ personas, onCreateNew, onSelectPersona, onViewProfile, onSettings, onRefresh }: Props) {
-  useEffect(() => {
-    onRefresh();
-  }, []);
+  const onCreateNew = () => navigate({ to: "/create" });
+  const onSelectPersona = (id: string) => navigate({ to: "/chat/$personaId", params: { personaId: id } });
+  const onViewProfile = (id: string) => navigate({ to: "/profile/$personaId", params: { personaId: id } });
+  const onSettings = () => navigate({ to: "/settings" });
 
   return (
     <div style={styles.container}>

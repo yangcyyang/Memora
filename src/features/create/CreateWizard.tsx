@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { AVATAR_EMOJI_PRESETS, PERSONA_TAG_PRESETS } from "@/lib/constants";
 import { detectAndParse, generatePersona, parsePastedText, captureAndOcr } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
@@ -7,12 +9,14 @@ import type { BasicInfo, GenerateProgress, ParsedContent } from "@/types";
 import { toast } from "sonner";
 import { ArrowLeft, FileUp, ScanText } from "lucide-react";
 
-interface Props {
-  onBack: () => void;
-  onComplete: (personaId: string) => void;
-}
-
-export function CreateWizard({ onBack, onComplete }: Props) {
+export function CreateWizard() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const onBack = () => navigate({ to: "/" });
+  const onComplete = async (personaId: string) => {
+    await queryClient.invalidateQueries({ queryKey: ["personas"] });
+    navigate({ to: "/chat/$personaId", params: { personaId } });
+  };
   const [step, setStep] = useState(1);
   // Step 1
   const [name, setName] = useState("");
@@ -111,7 +115,7 @@ export function CreateWizard({ onBack, onComplete }: Props) {
       toast.success(result.summary);
       // Brief pause so user sees "完成！" before navigation
       await new Promise((r) => setTimeout(r, 800));
-      await onComplete(result.persona_id);
+      onComplete(result.persona_id);
     } catch (e) {
       console.error("Generate failed:", e);
       toast.error(`生成失败: ${e}`);
