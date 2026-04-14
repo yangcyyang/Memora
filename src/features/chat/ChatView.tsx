@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { getPersona, getChatHistory, listChatSessions, newChatSession, sendMessage, speakText, toggleClipboardWatcher, appendClipboardCorpus, transcribeAudio } from "@/lib/tauri";
+import { getPersona, getChatHistory, listChatSessions, newChatSession, sendMessage, speakText, toggleClipboardWatcher, appendClipboardCorpus, transcribeAudio, startTauriRecording, stopTauriRecording } from "@/lib/tauri";
 import type { ChatMessage, Persona } from "@/types";
 import { ArrowLeft, Send, Menu, Edit3, Volume2, Loader2, Mic } from "lucide-react";
 import { toast } from "sonner";
@@ -73,6 +73,7 @@ export function ChatView() {
   const isInitialLoad = useRef(true);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recordingBackendRef = useRef<"browser" | "tauri" | null>(null);
 
   // ── TTS speak handler ──
   const handleSpeak = useCallback(async (msg: ChatMessage) => {
@@ -246,57 +247,84 @@ export function ChatView() {
   // ── STT Voice Input ──
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+      // Try browser MediaRecorder first
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+        recordingBackendRef.current = "browser";
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
 
-      mediaRecorder.onstop = async () => {
-        setRecordingState("transcribing");
-        try {
-          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-            const base64Audio = (reader.result as string).split(",")[1];
-            const text = await transcribeAudio(base64Audio, "audio/webm");
-            setInput((prev) => (prev ? prev + " " + text : text));
-            toast.success("语音转写完成");
-          };
-        } catch (e) {
-          toast.error(`转写失败: ${e}`);
-        } finally {
-          setRecordingState("idle");
-        }
-      };
+        mediaRecorder.onstop = async () => {
+          setRecordingState("transcribing");
+          try {
+            const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = async () => {
+              const base64Audio = (reader.result as string).split(",")[1];
+              const text = await transcribeAudio(base64Audio, "audio/webm");
+              setInput((prev) => (prev ? prev + " " + text : text));
+              toast.success("语音转写完成");
+            };
+          } catch (e) {
+            toast.error(`转写失败: ${e}`);
+          } finally {
+            setRecordingState("idle");
+            recordingBackendRef.current = null;
+          }
+        };
 
-      mediaRecorder.start();
-      setRecordingState("recording");
-      toast.info("正在录音，点击停止");
+        mediaRecorder.start();
+        setRecordingState("recording");
+        toast.info("正在录音，点击停止");
+      } else {
+        // Fallback to Tauri native recording
+        recordingBackendRef.current = "tauri";
+        await startTauriRecording();
+        setRecordingState("recording");
+        toast.info("正在录音（Tauri），点击停止");
+      }
     } catch (e) {
+      recordingBackendRef.current = null;
       toast.error(`无法启动录音: ${e}`);
     }
   };
 
-  const stopRecording = () => {
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state === "recording") {
-      recorder.stop();
-      recorder.stream.getTracks().forEach((track) => track.stop());
+  const stopRecording = async () => {
+    if (recordingBackendRef.current === "browser") {
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state === "recording") {
+        recorder.stop();
+        recorder.stream.getTracks().forEach((track) => track.stop());
+      }
+    } else if (recordingBackendRef.current === "tauri") {
+      setRecordingState("transcribing");
+      try {
+        const base64Audio = await stopTauriRecording();
+        const text = await transcribeAudio(base64Audio, "audio/wav");
+        setInput((prev) => (prev ? prev + " " + text : text));
+        toast.success("语音转写完成");
+      } catch (e) {
+        toast.error(`转写失败: ${e}`);
+      } finally {
+        setRecordingState("idle");
+        recordingBackendRef.current = null;
+      }
     }
   };
 
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (recordingState === "recording") {
-      stopRecording();
+      await stopRecording();
     } else if (recordingState === "idle") {
-      startRecording();
+      await startRecording();
     }
   };
 

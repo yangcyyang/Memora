@@ -139,6 +139,9 @@ pub fn run() {
             commands::bridge::toggle_clipboard_watcher,
             // ── STT ──
             commands::stt::transcribe_audio,
+            // ── Recording ──
+            commands::record::start_recording,
+            commands::record::stop_recording,
             // ── TTS (Voice) ──
             commands::tts::get_tts_settings,
             commands::tts::save_tts_settings,

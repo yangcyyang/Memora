@@ -157,3 +157,7 @@ export const triggerProactiveTest = (personaId: string) =>
 // ── STT ──
 export const transcribeAudio = (audioBase64: string, mimeType: string) =>
   invoke<string>("transcribe_audio", { audioBase64, mimeType });
+
+// ── Recording ──
+export const startTauriRecording = () => invoke<void>("start_recording");
+export const stopTauriRecording = () => invoke<string>("stop_recording");

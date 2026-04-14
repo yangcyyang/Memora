@@ -45,6 +45,8 @@ pinyin = "0.10"
 zip = "0.6"
 bincode = "1"
 instant-distance = { version = "0.6", features = ["with-serde"] }
+cpal = "0.15"
+hound = "3.5"
 
 # Data parsers (Phase 1: wechat txt/html/csv)
 scraper = "0.22"
