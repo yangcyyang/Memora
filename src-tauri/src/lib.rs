@@ -10,6 +10,7 @@ mod repo;
 mod services;
 mod tts;
 
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tracing_subscriber::{fmt, EnvFilter};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
@@ -60,10 +61,32 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             bridge::clipboard::start_watcher(app.handle().clone());
+            if let Err(err) = commands::notification::setup_tray(&app.handle()) {
+                tracing::warn!("托盘初始化失败: {}", err);
+            }
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            commands::notification::handle_tray_menu(app, event.id().0.as_ref());
+        })
+        .on_tray_icon_event(|app, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                commands::notification::handle_tray_click(app);
+            }
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args(["--from-autostart"])
+                .build(),
+        )
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::updater::PendingUpdate::new())
@@ -76,6 +99,7 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::settings::validate_api_key,
+            commands::notification::send_notification,
             // ── Parser & OCR ──
             commands::parser::detect_and_parse,
             commands::parser::parse_pasted_text,
@@ -88,6 +112,8 @@ pub fn run() {
             commands::persona::rollback_persona,
             commands::persona::update_persona_field,
             commands::persona::append_clipboard_corpus,
+            commands::persona::save_proactive_settings,
+            commands::persona::get_proactive_settings,
             // ── Generator ──
             commands::generator::generate_persona,
             // ── Calibration ──
@@ -119,6 +145,8 @@ pub fn run() {
             commands::tts::check_ffmpeg,
             commands::tts::get_cache_stats,
             commands::tts::clear_audio_cache,
+            // ── Backup ──
+            commands::backup::export_persona,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Memora");

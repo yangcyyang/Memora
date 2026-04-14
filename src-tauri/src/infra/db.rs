@@ -71,17 +71,19 @@ pub fn initialize_db() -> Result<()> {
         r#"
         -- Persona 主表
         CREATE TABLE IF NOT EXISTS personas (
-            id           TEXT PRIMARY KEY,
-            slug         TEXT UNIQUE NOT NULL,
-            name         TEXT NOT NULL,
-            avatar_emoji TEXT DEFAULT '💜',
-            description  TEXT DEFAULT '',
-            tags_json    TEXT NOT NULL DEFAULT '[]',
-            persona_md   TEXT NOT NULL DEFAULT '',
-            memories_md  TEXT NOT NULL DEFAULT '',
-            version      INTEGER NOT NULL DEFAULT 1,
-            created_at   TEXT NOT NULL,
-            updated_at   TEXT NOT NULL
+            id                TEXT PRIMARY KEY,
+            slug              TEXT UNIQUE NOT NULL,
+            name              TEXT NOT NULL,
+            avatar_emoji      TEXT DEFAULT '💜',
+            description       TEXT DEFAULT '',
+            tags_json         TEXT NOT NULL DEFAULT '[]',
+            persona_md        TEXT NOT NULL DEFAULT '',
+            memories_md       TEXT NOT NULL DEFAULT '',
+            version           INTEGER NOT NULL DEFAULT 1,
+            proactive_enabled INTEGER NOT NULL DEFAULT 0,
+            proactive_rules   TEXT,
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL
         );
 
         -- 版本快照（回滚用）
@@ -143,6 +145,10 @@ pub fn initialize_db() -> Result<()> {
             model      TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
         );
+
+        -- 主动触达配置迁移（兼容旧表）
+        -- 注：SQLite 不支持 IF NOT EXISTS，通过 user_version 控制迁移
+        PRAGMA user_version = 1;
         "#,
     )
     .context("Failed to create database tables")?;

@@ -265,3 +265,35 @@ pub fn persona_exists(conn: &Connection, id: &str) -> Result<bool, AppError> {
     )?;
     Ok(exists)
 }
+
+/// Save proactive settings for a persona.
+pub fn save_proactive_settings(
+    conn: &Connection,
+    id: &str,
+    enabled: bool,
+    rules_json: Option<&str>,
+    now: &str,
+) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE personas SET proactive_enabled = ?1, proactive_rules = ?2, updated_at = ?3 WHERE id = ?4",
+        params![if enabled { 1 } else { 0 }, rules_json, now, id],
+    )?;
+    Ok(())
+}
+
+/// Get proactive settings for a persona.
+pub fn get_proactive_settings(
+    conn: &Connection,
+    id: &str,
+) -> Result<(bool, Option<String>), AppError> {
+    conn.query_row(
+        "SELECT proactive_enabled, proactive_rules FROM personas WHERE id = ?1",
+        [id],
+        |row| {
+            let enabled: i32 = row.get(0)?;
+            let rules: Option<String> = row.get(1)?;
+            Ok((enabled != 0, rules))
+        },
+    )
+    .map_err(|_| AppError::not_found(format!("Persona '{}' not found", id)))
+}

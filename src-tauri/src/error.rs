@@ -19,6 +19,15 @@ pub enum AppError {
     #[error("未找到: {0}")]
     NotFound(String),
 
+    #[error("IO 错误: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("ZIP 错误: {0}")]
+    Zip(String),
+
+    #[error("序列化错误: {0}")]
+    Serialize(String),
+
     #[error("{0}")]
     Internal(#[from] anyhow::Error),
 }

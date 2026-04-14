@@ -1,107 +1,125 @@
 import { useState, useEffect } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 import { useNavigate } from "@tanstack/react-router";
-import { PROVIDER_OPTIONS } from "@/lib/constants";
-import { saveSettings, validateApiKey, getSettings, getTtsSettings, saveTtsSettings, listTtsProviders, clearAudioCache, checkAppUpdate, downloadAndInstallUpdate, restartAfterUpdate } from "@/lib/tauri";
-import type { TtsProviderInfo, UpdateCheckResult } from "@/types";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import { ArrowLeft, Trash2, Sun, Moon, Monitor } from "lucide-react";
-import { useTheme } from "@/hooks/useTheme";
-import type { ThemeMode } from "@/hooks/useTheme";
+import { ArrowLeft, Eye, EyeOff, Check, AlertCircle, Server, Key, Sparkles, Power } from "lucide-react";
+import { getSettings, saveAiSettings, validateKey } from "@/lib/tauri";
+// import type { AppSettings } from "@/types";
 
-const DUMMY_KEY = "•".repeat(64);
+const AI_PROVIDERS = [
+  { id: "openai", name: "OpenAI", defaultBaseUrl: "https://api.openai.com/v1", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"] },
+  { id: "anthropic", name: "Anthropic", defaultBaseUrl: "https://api.anthropic.com/v1", models: ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"] },
+  { id: "minimax", name: "MiniMax", defaultBaseUrl: "https://api.minimax.chat/v1", models: ["abab6.5s-chat", "abab6-chat"] },
+  { id: "deepseek", name: "DeepSeek", defaultBaseUrl: "https://api.deepseek.com/v1", models: ["deepseek-chat", "deepseek-coder"] },
+  { id: "ollama", name: "本地 Ollama", defaultBaseUrl: "http://localhost:11434", models: ["llama3.1", "qwen2.5", "gemma2", "phi4"] },
+];
+
+type Mode = "managed" | "advanced";
 
 export function SettingsView() {
   const navigate = useNavigate();
-  const onBack = () => navigate({ to: "/" });
-  const { mode, setMode } = useTheme();
-  const [provider, setProvider] = useState("");
-  const [activeProvider, setActiveProvider] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [autostartEnabled, setAutostartEnabled] = useState(false);
+  const [autostartLoading, setAutostartLoading] = useState(true);
+  const [autostartSaving, setAutostartSaving] = useState(false);
+  
+  // Mode selection
+  const [mode, setMode] = useState<Mode>("managed");
+  
+  // Form state
+  const [provider, setProvider] = useState("openai");
   const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
-  const [saving, setSaving] = useState(false);
+  
+  // Validation state
+  const [keyValid, setKeyValid] = useState<boolean | null>(null);
+  const [hasExistingKey, setHasExistingKey] = useState(false);
 
-  // TTS state
-  const [ttsProviders, setTtsProviders] = useState<TtsProviderInfo[]>([]);
-  const [ttsProvider, setTtsProvider] = useState("");
-  const [ttsApiKey, setTtsApiKey] = useState("");
-  const [ttsGroupId, setTtsGroupId] = useState("");
-  const [ttsLanguage, setTtsLanguage] = useState("zh-CN");
-  const [ttsCacheLimit, setTtsCacheLimit] = useState(500);
-  const [ttsCacheStats, setTtsCacheStats] = useState({ file_count: 0, total_size_mb: 0 });
-  const [hasTtsKey, setHasTtsKey] = useState(false);
-  const [savingTts, setSavingTts] = useState(false);
-
-  // General settings
-  const [clipboardWatcherEnabled, setClipboardWatcherEnabled] = useState(
-    localStorage.getItem("memora_clipboard_watcher") === "true"
-  );
-  const [appVersion, setAppVersion] = useState("");
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
-  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
-  const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<{ total: number; downloaded: number } | null>(null);
-
+  // Load existing settings
   useEffect(() => {
-    getVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
-    (async () => {
+    const loadSettings = async () => {
       try {
-        const s = await getSettings();
-        setProvider(s.provider);
-        setActiveProvider(s.provider);
-        setBaseUrl(s.base_url);
-        setModel(s.model);
-        if (s.has_api_key) {
-          setApiKey(DUMMY_KEY);
+        const settings = await getSettings();
+        if (settings.provider) {
+          setProvider(settings.provider);
+          setBaseUrl(settings.base_url || "");
+          setModel(settings.model || "");
+          setHasExistingKey(settings.has_api_key);
+          if (settings.has_api_key) {
+            setMode("advanced");
+          }
         }
-      } catch {
-        // use defaults
+      } catch (e) {
+        console.error("Failed to load settings:", e);
+      } finally {
+        setLoading(false);
       }
-    })();
-
-    // Load TTS settings
-    (async () => {
-      try {
-        const providers = await listTtsProviders();
-        setTtsProviders(providers);
-
-        const tts = await getTtsSettings();
-        setTtsProvider(tts.active_provider || providers[0]?.id || "minimax");
-        setTtsLanguage(tts.default_language || "zh-CN");
-        setTtsCacheLimit(tts.cache_limit_mb);
-        setTtsCacheStats(tts.cache_stats);
-        setHasTtsKey(tts.has_api_key);
-        if (tts.has_api_key) {
-          setTtsApiKey(DUMMY_KEY);
-        }
-        setTtsGroupId(tts.group_id || "");
-      } catch { /* ignore */ }
-    })();
+    };
+    loadSettings();
   }, []);
 
+  useEffect(() => {
+    const loadAutostartState = async () => {
+      try {
+        const enabled = await invoke<boolean>("plugin:autostart|is_enabled");
+        setAutostartEnabled(enabled);
+      } catch (e) {
+        console.warn("Failed to load autostart state:", e);
+      } finally {
+        setAutostartLoading(false);
+      }
+    };
+    loadAutostartState();
+  }, []);
+
+  // Auto-set default base URL and model when provider changes
+  useEffect(() => {
+    const providerConfig = AI_PROVIDERS.find(p => p.id === provider);
+    if (providerConfig) {
+      setBaseUrl(providerConfig.defaultBaseUrl);
+      setModel(providerConfig.models[0]);
+    }
+  }, [provider]);
+
+  const handleValidateKey = async () => {
+    if (!apiKey.trim()) {
+      toast.error("请输入 API Key");
+      return;
+    }
+    setValidating(true);
+    setKeyValid(null);
+    try {
+      const isValid = await validateKey(provider, apiKey, baseUrl, model);
+      setKeyValid(isValid);
+      if (isValid) {
+        toast.success("API Key 验证成功");
+      } else {
+        toast.error("API Key 验证失败");
+      }
+    } catch (e) {
+      toast.error(`验证出错: ${e}`);
+      setKeyValid(false);
+    } finally {
+      setValidating(false);
+    }
+  };
+
   const handleSave = async () => {
+    if (mode === "advanced" && !hasExistingKey && !apiKey.trim()) {
+      toast.error("请输入 API Key");
+      return;
+    }
+    
     setSaving(true);
     try {
-      const finalKey = apiKey === DUMMY_KEY ? "" : apiKey;
-      if (finalKey.trim()) {
-        try {
-          const valid = await validateApiKey(provider, finalKey, baseUrl, model);
-          if (!valid) {
-            toast.error("密钥验证失败");
-            setSaving(false);
-            return;
-          }
-        } catch (validationErr) {
-          toast.error(`密钥验证失败: ${validationErr}`);
-          setSaving(false);
-          return;
-        }
-      }
-      await saveSettings(provider, finalKey, baseUrl, model);
-      setActiveProvider(provider);
-      toast.success("已保存配置", { description: `已成功切换为并启用模型: ${model}` });
+      await saveAiSettings(provider, apiKey, baseUrl, model);
+      toast.success("设置已保存");
+      setHasExistingKey(true);
+      setKeyValid(null);
     } catch (e) {
       toast.error(`保存失败: ${e}`);
     } finally {
@@ -109,391 +127,263 @@ export function SettingsView() {
     }
   };
 
-  const handleProviderChange = async (id: string) => {
-    setProvider(id);
+  const handleToggleAutostart = async () => {
+    setAutostartSaving(true);
     try {
-      const s = await getSettings(id);
-      if (s.base_url) {
-        setBaseUrl(s.base_url);
-        setModel(s.model);
-        setApiKey(s.has_api_key ? DUMMY_KEY : ""); // clear or set to dummy so we don't accidentally overwrite with stale input
+      if (autostartEnabled) {
+        await invoke("plugin:autostart|disable");
+        setAutostartEnabled(false);
+        toast.success("已关闭开机自启");
       } else {
-        const p = PROVIDER_OPTIONS.find((o) => o.id === id);
-        if (p) {
-          setBaseUrl(p.defaultUrl);
-          setModel(p.defaultModel);
-          setApiKey("");
-        }
+        await invoke("plugin:autostart|enable");
+        setAutostartEnabled(true);
+        toast.success("已开启开机自启");
       }
-    } catch {
-      const p = PROVIDER_OPTIONS.find((o) => o.id === id);
-      if (p) {
-        setBaseUrl(p.defaultUrl);
-        setModel(p.defaultModel);
-      }
-    }
-  };
-
-  const handleSaveTts = async () => {
-    setSavingTts(true);
-    try {
-      const finalTtsKey = ttsApiKey === DUMMY_KEY ? "" : ttsApiKey;
-      await saveTtsSettings(ttsProvider, finalTtsKey, ttsGroupId, ttsLanguage, ttsCacheLimit);
-      setHasTtsKey(finalTtsKey.trim() !== "" || hasTtsKey);
-      if (finalTtsKey.trim() !== "") {
-        setTtsApiKey(DUMMY_KEY);
-      }
-      toast.success("语音设置已保存");
-      // Refresh cache stats
-      const tts = await getTtsSettings();
-      setTtsCacheStats(tts.cache_stats);
     } catch (e) {
-      toast.error(`保存失败: ${e}`);
+      toast.error(`切换开机自启失败: ${e}`);
     } finally {
-      setSavingTts(false);
+      setAutostartSaving(false);
     }
   };
 
-  const handleClearCache = async () => {
-    try {
-      await clearAudioCache();
-      const tts = await getTtsSettings();
-      setTtsCacheStats(tts.cache_stats);
-      toast.success("缓存已清空");
-    } catch (e) {
-      toast.error(`清空缓存失败: ${e}`);
-    }
-  };
-
-  const handleCheckUpdate = async () => {
-    setIsCheckingUpdate(true);
-    setUpdateResult(null);
-    try {
-      const result = await checkAppUpdate();
-      setUpdateResult(result);
-      if (!result.available) {
-        toast.success("当前已是最新版本");
-      }
-    } catch (e) {
-      toast.error(`检查更新失败: ${e}`);
-    } finally {
-      setIsCheckingUpdate(false);
-    }
-  };
-
-  const handleDownloadUpdate = async () => {
-    setIsDownloadingUpdate(true);
-    setDownloadProgress({ total: 0, downloaded: 0 });
-    
-    let unlisten: () => void = () => {};
-    try {
-      unlisten = await listen("updater://download-progress", (event: any) => {
-        const { chunk_length, content_length } = event.payload;
-        setDownloadProgress(prev => ({
-          total: content_length || prev?.total || 0,
-          downloaded: (prev?.downloaded || 0) + chunk_length
-        }));
-      });
-
-      await downloadAndInstallUpdate();
-      toast.success("更新就绪", { description: "即将重启应用程序..." });
-      setTimeout(async () => {
-        await restartAfterUpdate();
-      }, 1500);
-    } catch (e) {
-      toast.error(`下载更新失败: ${e}`);
-      setIsDownloadingUpdate(false);
-    } finally {
-      unlisten();
-    }
-  };
-
-  const currentTtsProvider = ttsProviders.find(p => p.id === ttsProvider);
+  if (loading) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.loading}>加载中...</div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
+      {/* Header */}
       <header style={styles.header}>
-        <button type="button" onClick={onBack} style={styles.backBtn}>
+        <button type="button" onClick={() => navigate({ to: "/" })} style={styles.backBtn}>
           <ArrowLeft size={18} />
           <span>返回</span>
         </button>
+        <h1 style={styles.title}>设置</h1>
+        <div style={{ width: 80 }} />
       </header>
 
       <main style={styles.main}>
         <div style={styles.content}>
-          <h2 className="text-heading" style={{ marginBottom: 32 }}>设置</h2>
-
-          {/* ── Theme Toggle ── */}
+          {/* Mode Selection */}
           <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>外观</h3>
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>主题模式</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                {([
-                  { id: "system" as ThemeMode, label: "跟随系统", icon: <Monitor size={14} /> },
-                  { id: "light" as ThemeMode, label: "浅色", icon: <Sun size={14} /> },
-                  { id: "dark" as ThemeMode, label: "深色", icon: <Moon size={14} /> },
-                ] as const).map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setMode(opt.id)}
-                    style={{
-                      ...styles.chipBtn,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      background: mode === opt.id ? "var(--color-rose-500)" : "var(--color-cream-200)",
-                      color: mode === opt.id ? "white" : "var(--color-earth-600)",
-                    }}
-                  >
-                    {opt.icon}
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+            <h2 style={styles.sectionTitle}>使用模式</h2>
+            <div style={styles.modeSelector}>
+              <button
+                type="button"
+                onClick={() => setMode("managed")}
+                style={{
+                  ...styles.modeCard,
+                  borderColor: mode === "managed" ? "var(--color-rose-400)" : "var(--color-cream-300)",
+                  background: mode === "managed" ? "var(--color-rose-50)" : "white",
+                }}
+              >
+                <Sparkles size={20} style={{ color: "var(--color-rose-400)", marginBottom: 8 }} />
+                <div style={styles.modeName}>初级版</div>
+                <div style={styles.modeDesc}>平台托管 API，开箱即用</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("advanced")}
+                style={{
+                  ...styles.modeCard,
+                  borderColor: mode === "advanced" ? "var(--color-sage-400)" : "var(--color-cream-300)",
+                  background: mode === "advanced" ? "var(--color-sage-50)" : "white",
+                }}
+              >
+                <Key size={20} style={{ color: "var(--color-sage-500)", marginBottom: 8 }} />
+                <div style={styles.modeName}>高级版</div>
+                <div style={styles.modeDesc}>自绑 API Key，更多控制</div>
+              </button>
             </div>
           </section>
 
-          <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>AI 服务</h3>
+          {mode === "advanced" && (
+            <>
+              {/* Provider Selection */}
+              <section style={styles.section}>
+                <h2 style={styles.sectionTitle}>
+                  <Server size={16} style={{ marginRight: 6 }} />
+                  AI 提供商
+                </h2>
+                <div style={styles.providerGrid}>
+                  {AI_PROVIDERS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setProvider(p.id)}
+                      style={{
+                        ...styles.providerCard,
+                        borderColor: provider === p.id ? "var(--color-rose-400)" : "var(--color-cream-300)",
+                        background: provider === p.id ? "var(--color-rose-50)" : "white",
+                      }}
+                    >
+                      <div style={styles.providerName}>{p.name}</div>
+                    </button>
+                  ))}
+                </div>
+              </section>
 
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>服务商</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                {PROVIDER_OPTIONS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => handleProviderChange(p.id)}
-                    style={{
-                      ...styles.chipBtn,
-                      background: provider === p.id ? "var(--color-rose-500)" : "var(--color-cream-200)",
-                      color: provider === p.id ? "white" : "var(--color-earth-600)",
-                      outline: activeProvider === p.id ? "2px solid var(--color-rose-300)" : "none",
-                      outlineOffset: "2px",
-                    }}
+              {/* API Key */}
+              <section style={styles.section}>
+                <h2 style={styles.sectionTitle}>
+                  <Key size={16} style={{ marginRight: 6 }} />
+                  API Key
+                  {hasExistingKey && (
+                    <span style={styles.badge}>已配置</span>
+                  )}
+                </h2>
+                <div style={styles.inputGroup}>
+                  <div style={styles.keyInputWrapper}>
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      placeholder={hasExistingKey ? "••••••••••••••••" : "输入你的 API Key"}
+                      value={apiKey}
+                      onChange={(e) => {
+                        setApiKey(e.target.value);
+                        setKeyValid(null);
+                      }}
+                      style={styles.keyInput}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      style={styles.eyeBtn}
+                    >
+                      {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <div style={styles.keyActions}>
+                    <button
+                      type="button"
+                      onClick={handleValidateKey}
+                      disabled={validating || !apiKey.trim()}
+                      style={{
+                        ...styles.secondaryBtn,
+                        opacity: validating || !apiKey.trim() ? 0.5 : 1,
+                      }}
+                    >
+                      {validating ? "验证中..." : "验证 Key"}
+                    </button>
+                    {keyValid === true && (
+                      <span style={styles.validBadge}>
+                        <Check size={14} /> 有效
+                      </span>
+                    )}
+                    {keyValid === false && (
+                      <span style={styles.invalidBadge}>
+                        <AlertCircle size={14} /> 无效
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* Ollama / Base URL Config */}
+              <section style={styles.section}>
+                <h2 style={styles.sectionTitle}>
+                  <Server size={16} style={{ marginRight: 6 }} />
+                  {provider === "ollama" ? "Ollama 配置" : "高级配置"}
+                </h2>
+                
+                <div style={styles.fieldGroup}>
+                  <label style={styles.fieldLabel}>Base URL</label>
+                  <input
+                    type="text"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder="https://api.example.com/v1"
+                    style={styles.input}
+                  />
+                  <p style={styles.fieldHint}>
+                    {provider === "ollama" 
+                      ? "本地 Ollama 默认地址: http://localhost:11434" 
+                      : "一般不需要修改，除非使用代理或自建服务"}
+                  </p>
+                </div>
+
+                <div style={styles.fieldGroup}>
+                  <label style={styles.fieldLabel}>模型</label>
+                  <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    style={styles.select}
                   >
-                    {p.name} {activeProvider === p.id && " (生效中)"}
-                  </button>
-                ))}
+                    {AI_PROVIDERS.find(p => p.id === provider)?.models.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              </section>
+            </>
+          )}
+
+          {mode === "managed" && (
+            <section style={styles.section}>
+              <div style={styles.managedInfo}>
+                <Sparkles size={32} style={{ color: "var(--color-rose-400)", marginBottom: 12 }} />
+                <h3 style={styles.managedTitle}>使用平台托管服务</h3>
+                <p style={styles.managedDesc}>
+                  你不需要配置 API Key，平台会为你管理 AI 服务。
+                  <br />
+                  适合快速开始，无需担心额度或配置。
+                </p>
               </div>
-            </div>
+            </section>
+          )}
 
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>API 密钥</label>
-              <input
-                type="password"
-                placeholder="输入新密钥以更新（留空则不修改）"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                style={styles.input}
-              />
+          <section style={styles.section}>
+            <h2 style={styles.sectionTitle}>
+              <Power size={16} style={{ marginRight: 6 }} />
+              系统设置
+            </h2>
+            <div style={styles.systemCard}>
+              <div>
+                <div style={styles.systemTitle}>开机自启</div>
+                <div style={styles.systemDesc}>
+                  启动系统后自动打开 Memora，便于后续常驻托盘和主动提醒。
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleAutostart}
+                disabled={autostartLoading || autostartSaving}
+                style={{
+                  ...styles.toggleBtn,
+                  background: autostartEnabled ? "var(--color-sage-500)" : "var(--color-cream-300)",
+                  opacity: autostartLoading || autostartSaving ? 0.6 : 1,
+                }}
+              >
+                <span
+                  style={{
+                    ...styles.toggleKnob,
+                    transform: autostartEnabled ? "translateX(22px)" : "translateX(0)",
+                  }}
+                />
+              </button>
             </div>
+            <p style={styles.fieldHint}>
+              {autostartLoading ? "正在读取状态..." : autostartEnabled ? "当前已开启" : "当前未开启"}
+            </p>
+          </section>
 
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>API 地址</label>
-              <input type="text" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} style={styles.input} />
-            </div>
-
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>模型</label>
-              <input type="text" value={model} onChange={(e) => setModel(e.target.value)} style={styles.input} />
-            </div>
-
-            <button type="button" onClick={handleSave} disabled={saving} style={styles.primaryBtn}>
+          {/* Save Button */}
+          <section style={styles.section}>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                ...styles.primaryBtn,
+                width: "100%",
+                opacity: saving ? 0.6 : 1,
+              }}
+            >
               {saving ? "保存中..." : "保存设置"}
             </button>
-          </section>
-
-          {/* ── 实验室/通用功能 ── */}
-          <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>🧪 通用功能</h3>
-
-            <div style={{ ...styles.fieldGroup, flexDirection: "row" as const, alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontWeight: 600, color: "var(--color-earth-800)" }}>后台智能剪贴板语料捕捉</span>
-                <span style={{ fontSize: "0.8rem", color: "var(--color-earth-500)" }}>开启后，在人物聊天或详情页时，后台将自动检测并提示追加剪贴板内的聊天记录</span>
-              </div>
-              <label style={{ display: "flex", alignItems: "center", cursor: "pointer", position: "relative" }}>
-                <input 
-                  type="checkbox" 
-                  checked={clipboardWatcherEnabled} 
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setClipboardWatcherEnabled(checked);
-                    localStorage.setItem("memora_clipboard_watcher", checked ? "true" : "false");
-                    toast.success(checked ? "已开启后台剪贴板捕捉" : "已关闭后台剪贴板捕捉");
-                  }}
-                  style={{ opacity: 0, position: "absolute" }}
-                />
-                <div style={{
-                  width: 44, height: 24, borderRadius: 12, transition: "background-color 0.2s",
-                  background: clipboardWatcherEnabled ? "var(--color-rose-500)" : "var(--color-cream-300)",
-                  position: "relative"
-                }}>
-                  <div style={{
-                    width: 20, height: 20, borderRadius: 10, background: "white",
-                    position: "absolute", top: 2, left: clipboardWatcherEnabled ? 22 : 2, transition: "left 0.2s",
-                    boxShadow: "var(--shadow-sm)"
-                  }} />
-                </div>
-              </label>
-            </div>
-          </section>
-
-          {/* ── TTS Voice Settings ── */}
-          <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>🎙 语音服务</h3>
-
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>服务商</label>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {ttsProviders.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setTtsProvider(p.id)}
-                    style={{
-                      ...styles.chipBtn,
-                      background: ttsProvider === p.id ? "var(--color-lavender-500)" : "var(--color-cream-200)",
-                      color: ttsProvider === p.id ? "white" : "var(--color-earth-600)",
-                    }}
-                  >
-                    {p.name}
-                    {p.supports_clone && " 🎤"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>API 密钥 {hasTtsKey && <span style={{ color: "var(--color-sage-500)", fontSize: "0.75rem" }}>✓ 已设置</span>}</label>
-              <input
-                type="password"
-                placeholder="输入密钥以更新（留空则不修改）"
-                value={ttsApiKey}
-                onChange={(e) => setTtsApiKey(e.target.value)}
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>Group ID {ttsGroupId && <span style={{ color: "var(--color-sage-500)", fontSize: "0.75rem" }}>✓ 已设置</span>}</label>
-              <input
-                type="text"
-                placeholder="输入 MiniMax Group ID"
-                value={ttsGroupId}
-                onChange={(e) => setTtsGroupId(e.target.value)}
-                style={styles.input}
-              />
-              <span className="text-caption" style={{ color: "var(--color-earth-400)", fontSize: "0.75rem", marginTop: "-4px" }}>
-                *请前往 MiniMax 开放平台的「账户管理」-「基本信息」页面复制
-              </span>
-            </div>
-
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>默认语言</label>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {(currentTtsProvider?.languages ?? []).map((lang) => (
-                  <button
-                    key={lang.code}
-                    type="button"
-                    onClick={() => setTtsLanguage(lang.code)}
-                    style={{
-                      ...styles.chipBtn,
-                      fontSize: "0.75rem",
-                      padding: "6px 12px",
-                      background: ttsLanguage === lang.code ? "var(--color-sage-400)" : "var(--color-cream-200)",
-                      color: ttsLanguage === lang.code ? "white" : "var(--color-earth-600)",
-                    }}
-                  >
-                    {lang.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={styles.fieldGroup}>
-              <label style={styles.fieldLabel}>
-                缓存上限 <span style={{ fontWeight: 400, color: "var(--color-earth-400)" }}>{ttsCacheLimit} MB</span>
-              </label>
-              <input
-                type="range"
-                min={100}
-                max={2000}
-                step={100}
-                value={ttsCacheLimit}
-                onChange={(e) => setTtsCacheLimit(Number(e.target.value))}
-                style={{ width: "100%", accentColor: "var(--color-lavender-500)" }}
-              />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-                <span className="text-caption">
-                  已缓存: {ttsCacheStats.file_count} 个文件 · {ttsCacheStats.total_size_mb.toFixed(1)} MB
-                </span>
-                <button
-                  type="button"
-                  onClick={handleClearCache}
-                  style={{ ...styles.chipBtn, fontSize: "0.72rem", padding: "4px 10px", color: "var(--color-coral-500)", background: "var(--color-cream-200)" }}
-                >
-                  <Trash2 size={11} style={{ marginRight: 3 }} />
-                  清空
-                </button>
-              </div>
-            </div>
-
-            <button type="button" onClick={handleSaveTts} disabled={savingTts} style={{ ...styles.primaryBtn, background: "var(--color-lavender-500)" }}>
-              {savingTts ? "保存中..." : "保存语音设置"}
-            </button>
-          </section>
-
-          <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>关于</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <p className="text-caption" style={{ lineHeight: 1.8, margin: 0 }}>
-                Memora v{appVersion}<br />
-                所有数据仅保存在本地，只有 AI 推理请求会走 API。<br />
-                基于 ex-skill（MIT）开源项目。
-              </p>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <button 
-                  type="button" 
-                  onClick={handleCheckUpdate} 
-                  disabled={isCheckingUpdate || isDownloadingUpdate}
-                  style={{ ...styles.chipBtn, background: "var(--color-cream-200)", color: "var(--color-earth-700)" }}
-                >
-                  {isCheckingUpdate ? "检查中..." : "检查更新"}
-                </button>
-                
-                {updateResult?.available && !isDownloadingUpdate && (
-                  <button 
-                    type="button" 
-                    onClick={handleDownloadUpdate}
-                    style={{ ...styles.chipBtn, background: "var(--color-sage-500)", color: "white" }}
-                  >
-                    发现新版本 v{updateResult.version} - 立即更新
-                  </button>
-                )}
-                
-                {isDownloadingUpdate && downloadProgress && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 100, height: 4, background: "var(--color-cream-200)", borderRadius: 2, overflow: "hidden" }}>
-                      <div style={{ 
-                        height: "100%", 
-                        background: "var(--color-sage-500)", 
-                        width: downloadProgress.total > 0 ? `${(downloadProgress.downloaded / downloadProgress.total) * 100}%` : "0%"
-                      }} />
-                    </div>
-                    <span className="text-caption" style={{ color: "var(--color-sage-500)", margin: 0 }}>
-                      {downloadProgress.total > 0 
-                        ? `${Math.round((downloadProgress.downloaded / downloadProgress.total) * 100)}%`
-                        : `${(downloadProgress.downloaded / 1024 / 1024).toFixed(1)} MB`}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
           </section>
         </div>
       </main>
@@ -503,15 +393,54 @@ export function SettingsView() {
 
 const styles: Record<string, React.CSSProperties> = {
   container: { width: "100%", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" },
-  header: { padding: "16px 24px", flexShrink: 0 },
+  loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--color-earth-500)" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 24px", flexShrink: 0, borderBottom: "1px solid var(--color-cream-300)" },
   backBtn: { display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: "var(--color-earth-500)", cursor: "pointer", fontSize: "0.85rem", fontFamily: "var(--font-body)" },
-  main: { flex: 1, overflow: "auto", display: "flex", justifyContent: "center", padding: "0 32px 48px" },
+  title: { fontSize: "1.2rem", fontWeight: 600, color: "var(--color-earth-800)" },
+  main: { flex: 1, overflow: "auto", display: "flex", justifyContent: "center", padding: "32px 24px" },
   content: { maxWidth: 560, width: "100%" },
-  section: { marginBottom: 40 },
-  sectionTitle: { fontSize: "0.95rem", fontWeight: 600, color: "var(--color-earth-700)", marginBottom: 20, paddingBottom: 8, borderBottom: "1px solid var(--color-cream-200)" },
-  fieldGroup: { marginBottom: 20, display: "flex", flexDirection: "column" as const, gap: 8 },
-  fieldLabel: { fontSize: "0.85rem", fontWeight: 500, color: "var(--color-earth-600)" },
-  input: { padding: "12px 16px", border: "1.5px solid var(--color-cream-300)", borderRadius: "var(--radius-md)", background: "var(--color-cream-100)", fontSize: "0.95rem", color: "var(--color-earth-800)", fontFamily: "var(--font-body)", outline: "none" },
-  chipBtn: { padding: "8px 16px", borderRadius: "var(--radius-full)", border: "none", fontSize: "0.8rem", cursor: "pointer", fontFamily: "var(--font-body)", transition: "all var(--duration-fast)" },
-  primaryBtn: { padding: "12px 28px", background: "var(--color-rose-500)", color: "white", border: "none", borderRadius: "var(--radius-md)", fontSize: "0.95rem", fontWeight: 500, cursor: "pointer", fontFamily: "var(--font-body)" },
+  section: { marginBottom: 32 },
+  sectionTitle: { fontSize: "0.9rem", fontWeight: 600, color: "var(--color-earth-700)", marginBottom: 12, display: "flex", alignItems: "center" },
+  badge: { marginLeft: 8, padding: "2px 8px", background: "var(--color-sage-400)", color: "white", borderRadius: "var(--radius-full)", fontSize: "0.7rem" },
+  
+  // Mode selector
+  modeSelector: { display: "flex", gap: 12 },
+  modeCard: { flex: 1, padding: "20px 16px", border: "2px solid", borderRadius: "var(--radius-lg)", cursor: "pointer", transition: "all var(--duration-fast)" },
+  modeName: { fontSize: "1rem", fontWeight: 600, color: "var(--color-earth-800)", marginBottom: 4 },
+  modeDesc: { fontSize: "0.8rem", color: "var(--color-earth-500)" },
+  
+  // Provider grid
+  providerGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 },
+  providerCard: { padding: "14px 12px", border: "2px solid", borderRadius: "var(--radius-md)", cursor: "pointer", transition: "all var(--duration-fast)", textAlign: "center" },
+  providerName: { fontSize: "0.85rem", fontWeight: 500 },
+  
+  // Input styles
+  inputGroup: { display: "flex", flexDirection: "column", gap: 12 },
+  keyInputWrapper: { position: "relative", display: "flex" },
+  keyInput: { flex: 1, padding: "12px 44px 12px 16px", border: "1.5px solid var(--color-cream-300)", borderRadius: "var(--radius-md)", background: "var(--color-cream-100)", fontSize: "0.9rem", color: "var(--color-earth-800)", fontFamily: "var(--font-body)", outline: "none" },
+  eyeBtn: { position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--color-earth-500)", padding: 4 },
+  keyActions: { display: "flex", alignItems: "center", gap: 12 },
+  secondaryBtn: { padding: "8px 16px", background: "var(--color-cream-200)", color: "var(--color-earth-700)", border: "none", borderRadius: "var(--radius-md)", fontSize: "0.85rem", cursor: "pointer", fontFamily: "var(--font-body)" },
+  validBadge: { display: "flex", alignItems: "center", gap: 4, color: "var(--color-sage-500)", fontSize: "0.85rem" },
+  invalidBadge: { display: "flex", alignItems: "center", gap: 4, color: "var(--color-rose-500)", fontSize: "0.85rem" },
+  
+  // Field styles
+  fieldGroup: { marginBottom: 16 },
+  fieldLabel: { display: "block", fontSize: "0.85rem", fontWeight: 500, color: "var(--color-earth-600)", marginBottom: 6 },
+  input: { width: "100%", padding: "12px 16px", border: "1.5px solid var(--color-cream-300)", borderRadius: "var(--radius-md)", background: "var(--color-cream-100)", fontSize: "0.9rem", color: "var(--color-earth-800)", fontFamily: "var(--font-body)", outline: "none", boxSizing: "border-box" },
+  select: { width: "100%", padding: "12px 16px", border: "1.5px solid var(--color-cream-300)", borderRadius: "var(--radius-md)", background: "var(--color-cream-100)", fontSize: "0.9rem", color: "var(--color-earth-800)", fontFamily: "var(--font-body)", outline: "none", cursor: "pointer" },
+  fieldHint: { marginTop: 6, fontSize: "0.8rem", color: "var(--color-earth-500)" },
+  
+  // Managed mode info
+  managedInfo: { padding: "40px 24px", textAlign: "center", background: "var(--color-cream-100)", borderRadius: "var(--radius-lg)", border: "2px dashed var(--color-cream-300)" },
+  managedTitle: { fontSize: "1.1rem", fontWeight: 600, color: "var(--color-earth-800)", marginBottom: 8 },
+  managedDesc: { fontSize: "0.9rem", color: "var(--color-earth-600)", lineHeight: 1.6 },
+  systemCard: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, padding: "16px 18px", borderRadius: "var(--radius-lg)", border: "1.5px solid var(--color-cream-300)", background: "white" },
+  systemTitle: { fontSize: "0.95rem", fontWeight: 600, color: "var(--color-earth-800)", marginBottom: 4 },
+  systemDesc: { fontSize: "0.82rem", color: "var(--color-earth-500)", lineHeight: 1.5, maxWidth: 360 },
+  toggleBtn: { width: 52, height: 30, borderRadius: 999, border: "none", padding: 4, position: "relative", cursor: "pointer", transition: "background var(--duration-fast)" },
+  toggleKnob: { width: 22, height: 22, borderRadius: "50%", background: "white", display: "block", transition: "transform var(--duration-fast)" },
+  
+  // Primary button
+  primaryBtn: { padding: "14px 28px", background: "var(--color-rose-500)", color: "white", border: "none", borderRadius: "var(--radius-md)", fontSize: "1rem", fontWeight: 500, cursor: "pointer", fontFamily: "var(--font-body)", transition: "all var(--duration-fast)" },
 };

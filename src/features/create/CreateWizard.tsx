@@ -2,12 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { AVATAR_EMOJI_PRESETS, PERSONA_TAG_PRESETS } from "@/lib/constants";
-import { detectAndParse, generatePersona, parsePastedText, captureAndOcr } from "@/lib/tauri";
+import { detectAndParse, generatePersona, parsePastedText, captureAndOcr, generateCalibrationSamples, submitCalibrationFeedback } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { BasicInfo, GenerateProgress, ParsedContent } from "@/types";
+import type { BasicInfo, GenerateProgress, ParsedContent, CalibrationSample, CalibrationFeedbackItem } from "@/types";
 import { toast } from "sonner";
-import { ArrowLeft, FileUp, ScanText } from "lucide-react";
+import { ArrowLeft, FileUp, ScanText, ThumbsUp, ThumbsDown, Tag, MessageSquare } from "lucide-react";
 
 export function CreateWizard() {
   const navigate = useNavigate();
@@ -30,6 +30,12 @@ export function CreateWizard() {
   // Step 3
   const [_generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState<GenerateProgress | null>(null);
+  // Step 4
+  const [personaId, setPersonaId] = useState<string>("");
+  const [calibrationSamples, setCalibrationSamples] = useState<CalibrationSample[]>([]);
+  const [calibrationFeedback, setCalibrationFeedback] = useState<Record<string, { sample_id: string; liked: boolean | null; tags: string[] }>>({});
+  const [calibrationFreeText, setCalibrationFreeText] = useState("");
+  const [submittingCalibration, setSubmittingCalibration] = useState(false);
 
   const toggleTag = (tag: string) => {
     setTags((prev) =>
@@ -113,9 +119,28 @@ export function CreateWizard() {
       const contents = parsed ? [parsed] : [];
       const result = await generatePersona(basicInfo, contents);
       toast.success(result.summary);
-      // Brief pause so user sees "完成！" before navigation
-      await new Promise((r) => setTimeout(r, 800));
-      onComplete(result.persona_id);
+      setPersonaId(result.persona_id);
+      
+      // 生成校准样本
+      try {
+        const samples = await generateCalibrationSamples(result.persona_id);
+        setCalibrationSamples(samples);
+        // 初始化反馈状态
+        const initialFeedback: Record<string, { sample_id: string; liked: boolean | null; tags: string[] }> = {};
+        samples.forEach(sample => {
+          initialFeedback[sample.id] = {
+            sample_id: sample.id,
+            liked: null,
+            tags: [],
+          };
+        });
+        setCalibrationFeedback(initialFeedback);
+        setStep(4);
+      } catch (calErr) {
+        console.error("Calibration samples failed:", calErr);
+        // 如果校准样本生成失败，直接完成
+        await onComplete(result.persona_id);
+      }
     } catch (e) {
       console.error("Generate failed:", e);
       toast.error(`生成失败: ${e}`);
@@ -126,16 +151,88 @@ export function CreateWizard() {
     }
   };
 
+  const handleCalibrationLike = (sampleId: string, liked: boolean) => {
+    setCalibrationFeedback(prev => ({
+      ...prev,
+      [sampleId]: {
+        ...prev[sampleId],
+        liked,
+      },
+    }));
+  };
+
+  const handleCalibrationTag = (sampleId: string, tag: string) => {
+    setCalibrationFeedback(prev => {
+      const current = prev[sampleId];
+      const tags = current.tags || [];
+      const newTags = tags.includes(tag)
+        ? tags.filter(t => t !== tag)
+        : [...tags, tag];
+      return {
+        ...prev,
+        [sampleId]: {
+          ...current,
+          tags: newTags,
+        },
+      };
+    });
+  };
+
+  const handleSubmitCalibration = async () => {
+    if (!personaId) return;
+    
+    // 检查是否有评价
+    const hasFeedback = Object.values(calibrationFeedback).some(f => f.liked !== null);
+    if (!hasFeedback) {
+      toast.error("请至少评价一条样本");
+      return;
+    }
+
+    setSubmittingCalibration(true);
+    try {
+      const ratedSamples = calibrationSamples.filter(s => calibrationFeedback[s.id]?.liked !== null);
+      const feedbackItems: CalibrationFeedbackItem[] = ratedSamples.map(sample => {
+        const feedback = calibrationFeedback[sample.id];
+        return {
+          sample_id: sample.id,
+          scenario: sample.scenario,
+          reply: sample.reply,
+          liked: feedback.liked!,
+          tags: feedback.tags || [],
+        };
+      });
+      await submitCalibrationFeedback(personaId, feedbackItems, calibrationFreeText || undefined);
+      toast.success("校准完成！开始对话吧~");
+      await onComplete(personaId);
+    } catch (e) {
+      console.error("Submit calibration failed:", e);
+      toast.error(`提交失败: ${e}`);
+    } finally {
+      setSubmittingCalibration(false);
+    }
+  };
+
+  const getCalibrationProgress = () => {
+    const total = calibrationSamples.length;
+    const rated = Object.values(calibrationFeedback).filter(f => f.liked !== null).length;
+    return { total, rated, percent: total > 0 ? Math.round((rated / total) * 100) : 0 };
+  };
+
   return (
     <div style={styles.container}>
       {/* Top Bar */}
       <header style={styles.topBar}>
-        <button type="button" onClick={step === 1 ? onBack : () => setStep(step - 1)} style={styles.backBtn}>
+        <button 
+          type="button" 
+          onClick={step === 1 ? onBack : step === 4 ? () => setStep(3) : () => setStep(step - 1)} 
+          style={styles.backBtn}
+          disabled={step === 3}
+        >
           <ArrowLeft size={18} />
-          <span>{step === 1 ? "返回" : "上一步"}</span>
+          <span>{step === 1 ? "返回" : step === 4 ? "重新生成" : "上一步"}</span>
         </button>
         <div style={styles.steps}>
-          {[1, 2, 3].map((s) => (
+          {[1, 2, 3, 4].map((s) => (
             <div
               key={s}
               style={{
@@ -326,6 +423,169 @@ export function CreateWizard() {
             </p>
           </div>
         )}
+
+        {/* Step 4: Calibration */}
+        {step === 4 && (
+          <div className="animate-slide-up" style={{ ...styles.stepContent, maxWidth: 640 }}>
+            <p style={styles.stepLabel}>第 4 步</p>
+            <h2 className="text-heading" style={{ marginBottom: 8 }}>
+              校准测试
+            </h2>
+            <p className="text-caption" style={{ marginBottom: 24 }}>
+              看看这些回复像不像 {name}？标记"像"或"不像"帮助 AI 学习
+            </p>
+
+            {/* Progress */}
+            {(() => {
+              const { rated, total, percent } = getCalibrationProgress();
+              return (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: "0.85rem", color: "var(--color-earth-600)" }}>
+                      已评价 {rated}/{total}
+                    </span>
+                    <span style={{ fontSize: "0.85rem", color: "var(--color-rose-500)", fontWeight: 500 }}>
+                      {percent}%
+                    </span>
+                  </div>
+                  <div style={styles.progressTrack}>
+                    <div
+                      style={{
+                        ...styles.progressFill,
+                        width: `${percent}%`,
+                        transition: "width 0.3s ease-out",
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Sample Cards */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+              {calibrationSamples.map((sample, index) => {
+                const feedback = calibrationFeedback[sample.id];
+                const isLiked = feedback?.liked;
+                return (
+                  <div
+                    key={sample.id}
+                    style={{
+                      ...styles.sampleCard,
+                      borderColor: isLiked === true 
+                        ? "var(--color-sage-400)" 
+                        : isLiked === false 
+                          ? "var(--color-rose-300)" 
+                          : "var(--color-cream-300)",
+                    }}
+                  >
+                    <div style={{ marginBottom: 12 }}>
+                      <span style={styles.sampleIndex}>样本 {index + 1}</span>
+                    </div>
+                    
+                    {/* User message context */}
+                    {sample.scenario && (
+                      <div style={styles.contextText}>
+                        <span style={{ color: "var(--color-earth-400)" }}>上下文：</span>
+                        {sample.scenario}
+                      </div>
+                    )}
+                    
+                    {/* Sample response */}
+                    <div style={styles.sampleText}>
+                      {sample.reply}
+                    </div>
+
+                    {/* Like/Unlike buttons */}
+                    <div style={{ display: "flex", gap: 8, marginTop: 12, marginBottom: 12 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleCalibrationLike(sample.id, true)}
+                        style={{
+                          ...styles.feedbackBtn,
+                          background: isLiked === true ? "var(--color-sage-400)" : "var(--color-cream-200)",
+                          color: isLiked === true ? "white" : "var(--color-earth-600)",
+                        }}
+                      >
+                        <ThumbsUp size={14} />
+                        <span>像 {name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCalibrationLike(sample.id, false)}
+                        style={{
+                          ...styles.feedbackBtn,
+                          background: isLiked === false ? "var(--color-rose-400)" : "var(--color-cream-200)",
+                          color: isLiked === false ? "white" : "var(--color-earth-600)",
+                        }}
+                      >
+                        <ThumbsDown size={14} />
+                        <span>不像</span>
+                      </button>
+                    </div>
+
+                    {/* Tag selection (only show if rated) */}
+                    {isLiked !== null && (
+                      <div style={{ animation: "fadeIn 0.3s ease" }}>
+                        <div style={{ fontSize: "0.8rem", color: "var(--color-earth-500)", marginBottom: 8 }}>
+                          <Tag size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                          添加标签（可选）
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {["语气像", "用词像", "太正式", "太随意", "太热情", "太冷淡"].map(tag => {
+                            const isSelected = feedback?.tags?.includes(tag);
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => handleCalibrationTag(sample.id, tag)}
+                                style={{
+                                  ...styles.tagChipSmall,
+                                  background: isSelected ? "var(--color-rose-300)" : "var(--color-cream-200)",
+                                  color: isSelected ? "white" : "var(--color-earth-600)",
+                                }}
+                              >
+                                {tag}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Free text feedback */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ ...styles.fieldLabel, display: "flex", alignItems: "center", gap: 6 }}>
+                <MessageSquare size={14} />
+                其他建议（可选）
+              </label>
+              <textarea
+                placeholder="比如：整体语气可以再温柔一点，多用一些 emoji..."
+                value={calibrationFreeText}
+                onChange={(e) => setCalibrationFreeText(e.target.value)}
+                style={{ ...styles.textarea, minHeight: 80 }}
+                rows={3}
+              />
+            </div>
+
+            {/* Submit button */}
+            <button
+              type="button"
+              onClick={handleSubmitCalibration}
+              disabled={submittingCalibration || Object.values(calibrationFeedback).filter(f => f.liked !== null).length === 0}
+              style={{
+                ...styles.primaryBtn,
+                width: "100%",
+                opacity: submittingCalibration || Object.values(calibrationFeedback).filter(f => f.liked !== null).length === 0 ? 0.6 : 1,
+              }}
+            >
+              {submittingCalibration ? "提交中..." : "完成校准，开始对话 →"}
+            </button>
+          </div>
+        )}
       </main>
     </div>
   );
@@ -354,8 +614,64 @@ const styles: Record<string, React.CSSProperties> = {
   parsedInfo: { padding: "10px 14px", background: "oklch(94% 0.04 148 / 0.3)", borderRadius: "var(--radius-md)", fontSize: "0.85rem", color: "var(--color-sage-500)" },
   generateState: { display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", height: "100%", paddingBottom: 64 },
   generateOrb: { width: 100, height: 100, borderRadius: "50%", background: "var(--color-cream-200)", display: "flex", alignItems: "center", justifyContent: "center" },
-  progressTrack: { width: 200, height: 4, borderRadius: 2, background: "var(--color-cream-300)", overflow: "hidden" as const, marginTop: 16 },
+  progressTrack: { width: "100%", height: 4, borderRadius: 2, background: "var(--color-cream-300)", overflow: "hidden" as const },
   progressFill: { height: "100%", background: "var(--color-rose-500)", borderRadius: 2, transition: "width 0.5s var(--ease-out-quart)" },
   fileDropBtn: { width: "100%", display: "flex", flexDirection: "column" as const, alignItems: "center", gap: 6, padding: "28px 20px", border: "2px dashed var(--color-cream-300)", borderRadius: "var(--radius-lg)", background: "var(--color-cream-100)", cursor: "pointer", fontFamily: "var(--font-body)", transition: "all var(--duration-normal) var(--ease-out-quart)", marginBottom: 0 },
   divider: { display: "flex", alignItems: "center", gap: 16, margin: "20px 0", width: "100%" },
+  // Step 4 calibration styles
+  sampleCard: { 
+    padding: "16px 20px", 
+    background: "var(--color-cream-100)", 
+    border: "2px solid var(--color-cream-300)", 
+    borderRadius: "var(--radius-lg)",
+    transition: "all var(--duration-fast)",
+  },
+  sampleIndex: { 
+    fontSize: "0.75rem", 
+    fontWeight: 600, 
+    color: "var(--color-rose-500)",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.05em",
+  },
+  contextText: { 
+    fontSize: "0.8rem", 
+    color: "var(--color-earth-500)", 
+    marginBottom: 12,
+    padding: "8px 12px",
+    background: "var(--color-cream-200)",
+    borderRadius: "var(--radius-md)",
+    fontStyle: "italic" as const,
+  },
+  sampleText: { 
+    fontSize: "0.95rem", 
+    color: "var(--color-earth-800)", 
+    lineHeight: 1.6,
+    padding: "12px 16px",
+    background: "white",
+    borderRadius: "var(--radius-md)",
+    border: "1px solid var(--color-cream-300)",
+  },
+  feedbackBtn: { 
+    display: "flex", 
+    alignItems: "center", 
+    gap: 6, 
+    padding: "8px 16px", 
+    border: "none", 
+    borderRadius: "var(--radius-md)", 
+    fontSize: "0.85rem", 
+    cursor: "pointer", 
+    fontFamily: "var(--font-body)", 
+    transition: "all var(--duration-fast)",
+    flex: 1,
+    justifyContent: "center" as const,
+  },
+  tagChipSmall: { 
+    padding: "4px 10px", 
+    borderRadius: "var(--radius-full)", 
+    border: "none", 
+    fontSize: "0.75rem", 
+    cursor: "pointer", 
+    fontFamily: "var(--font-body)", 
+    transition: "all var(--duration-fast)",
+  },
 };

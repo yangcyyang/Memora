@@ -1,8 +1,10 @@
+pub mod backup;
 pub mod bridge;
 pub mod calibration;
 pub mod chat;
 pub mod correction;
 pub mod generator;
+pub mod notification;
 pub mod ocr;
 pub mod parser;
 pub mod persona;

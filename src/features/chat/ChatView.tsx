@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { SessionSidebar } from "./SessionSidebar";
 import { CorrectionDialog } from "./CorrectionDialog";
 import { MarkdownBubble } from "./MarkdownBubble";
+import { MessageContextMenu } from "@/components/MessageContextMenu";
 
 // ── WeChat-style timestamp formatting ──
 const WEEKDAYS = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
@@ -322,41 +323,57 @@ export function ChatView() {
                 justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
               }}
             >
-              <div
-                className="group"
-                style={{
-                  ...styles.bubble,
-                  ...(msg.role === "user" ? styles.userBubble : styles.assistantBubble),
-                  position: "relative",
-                }}
-              >
-                <MarkdownBubble content={msg.content} isUser={msg.role === "user"} />
-                {/* Action buttons for assistant messages */}
-                {msg.role === "assistant" && (
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={styles.bubbleActions}>
-                    <button
-                      type="button"
-                      onClick={() => handleSpeak(msg)}
-                      style={styles.speakBtn}
-                      title="朗读这条消息"
-                    >
-                      {speakingMsgId === msg.id ? (
-                        <Loader2 size={11} className="animate-spin" />
-                      ) : (
-                        <Volume2 size={11} />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCorrectionTarget(msg.content)}
-                      style={styles.correctBtn}
-                      title="纠正这条回复"
-                    >
-                      <Edit3 size={11} />
-                    </button>
+              {msg.role === "assistant" ? (
+                <MessageContextMenu
+                  personaId={personaId}
+                  messageContent={msg.content}
+                  onCorrect={() => setCorrectionTarget(msg.content)}
+                >
+                  <div
+                    className="group"
+                    style={{
+                      ...styles.bubble,
+                      ...styles.assistantBubble,
+                      position: "relative",
+                      cursor: "context-menu",
+                    }}
+                  >
+                    <MarkdownBubble content={msg.content} isUser={false} />
+                    {/* Action buttons for assistant messages */}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={styles.bubbleActions}>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleSpeak(msg); }}
+                        style={styles.speakBtn}
+                        title="朗读这条消息"
+                      >
+                        {speakingMsgId === msg.id ? (
+                          <Loader2 size={11} className="animate-spin" />
+                        ) : (
+                          <Volume2 size={11} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setCorrectionTarget(msg.content); }}
+                        style={styles.correctBtn}
+                        title="纠正这条回复"
+                      >
+                        <Edit3 size={11} />
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
+                </MessageContextMenu>
+              ) : (
+                <div
+                  style={{
+                    ...styles.bubble,
+                    ...styles.userBubble,
+                  }}
+                >
+                  <MarkdownBubble content={msg.content} isUser={true} />
+                </div>
+              )}
             </div>
           </div>
         ))}

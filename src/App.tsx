@@ -1,13 +1,20 @@
 import { useEffect, useState } from "react";
-import { Outlet, useNavigate } from "@tanstack/react-router";
+import { Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import { getSettings, listPersonas } from "@/lib/tauri";
 import { useTheme } from "@/hooks/useTheme";
+import { Sidebar } from "@/components/Sidebar";
+import { cn } from "@/lib/utils";
 
 export default function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [ready, setReady] = useState(false);
+  const [currentPersonaId, setCurrentPersonaId] = useState<string>();
   const { resolved } = useTheme();
+
+  // 判断是否在欢迎/登录页面（这些页面不需要侧边栏）
+  const isWelcomePage = location.pathname === "/welcome" || location.pathname === "/onboarding";
 
   useEffect(() => {
     (async () => {
@@ -16,7 +23,10 @@ export default function App() {
         if (settings.has_api_key) {
           const list = await listPersonas();
           if (list.length > 0) {
-            navigate({ to: "/" });
+            setCurrentPersonaId(list[0].id);
+            if (location.pathname === "/") {
+              navigate({ to: "/chat/$personaId", params: { personaId: list[0].id } });
+            }
           } else {
             navigate({ to: "/welcome" });
           }
@@ -30,10 +40,23 @@ export default function App() {
     })();
   }, [navigate]);
 
+  const handleSelectPersona = (id: string) => {
+    setCurrentPersonaId(id);
+    navigate({ to: "/chat/$personaId", params: { personaId: id } });
+  };
+
+  const handleCreatePersona = () => {
+    navigate({ to: "/create" });
+  };
+
+  const handleOpenSettings = () => {
+    navigate({ to: "/settings" });
+  };
+
   if (!ready) {
     return (
-      <div className="flex items-center justify-center w-full h-screen">
-        <span className="animate-pulse font-[var(--font-display)] text-2xl text-[var(--color-earth-500)]">
+      <div className="flex items-center justify-center w-full h-screen bg-[#0F0F14]">
+        <span className="animate-pulse text-2xl text-[#6366F1] font-semibold">
           Memora
         </span>
       </div>
@@ -47,15 +70,29 @@ export default function App() {
         theme={resolved}
         toastOptions={{
           style: {
-            background: "var(--color-cream-100)",
-            color: "var(--color-earth-800)",
-            border: "1px solid var(--color-cream-300)",
-            fontFamily: "var(--font-body)",
+            background: "#1A1A23",
+            color: "#F8FAFC",
+            border: "1px solid #2D2D3D",
           },
         }}
       />
-      <Outlet />
+      {isWelcomePage ? (
+        // 欢迎页面不需要侧边栏
+        <Outlet />
+      ) : (
+        // 主应用布局：侧边栏 + 内容区
+        <div className="flex h-screen bg-[#0F0F14]">
+          <Sidebar
+            currentPersonaId={currentPersonaId}
+            onSelectPersona={handleSelectPersona}
+            onCreatePersona={handleCreatePersona}
+            onOpenSettings={handleOpenSettings}
+          />
+          <main className="flex-1 overflow-hidden">
+            <Outlet />
+          </main>
+        </div>
+      )}
     </>
   );
 }
-

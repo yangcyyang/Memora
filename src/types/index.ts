@@ -135,6 +135,22 @@ export interface PersonaVoice {
   model: string;
 }
 
+// ── Calibration ──────────────────────────────────────────────────────
+
+export interface CalibrationSample {
+  id: string;
+  scenario: string;
+  reply: string;
+}
+
+export interface CalibrationFeedbackItem {
+  sample_id: string;
+  scenario: string;
+  reply: string;
+  liked: boolean;
+  tags: string[];
+}
+
 // ── Updater ─────────────────────────────────────────────────────────
 
 export interface UpdateCheckResult {

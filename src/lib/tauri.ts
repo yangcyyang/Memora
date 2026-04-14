@@ -15,16 +15,14 @@ import type {
   TtsSettings,
   UpdateCheckResult,
   VersionSummary,
+  CalibrationSample,
+  CalibrationFeedbackItem,
 } from "@/types";
 
 // ── Settings ──
 export const getSettings = (provider?: string) => invoke<AppSettings>("get_settings", { provider });
 
-export const saveSettings = (provider: string, api_key: string, base_url: string, model: string) =>
-  invoke("save_settings", { provider, apiKey: api_key, baseUrl: base_url, model });
-
-export const validateApiKey = (provider: string, api_key: string, base_url: string, model: string) =>
-  invoke<boolean>("validate_api_key", { provider, apiKey: api_key, baseUrl: base_url, model });
+// Note: saveAiSettings and validateKey are defined at the bottom of this file
 
 // ── Parser & OCR ──
 export const detectAndParse = (paths: string[]) =>
@@ -76,6 +74,16 @@ export const deleteChatSession = (personaId: string, sessionId: string) =>
 export const submitCorrection = (personaId: string, original: string, correction: string) =>
   invoke<CorrectionResult>("submit_correction", { personaId, original, correction });
 
+export const reinforceMemory = (personaId: string, messageContent: string) =>
+  invoke<{ success: boolean; version: number; rules: string[] }>("reinforce_memory", { personaId, messageContent });
+
+// ── Calibration ──
+export const generateCalibrationSamples = (personaId: string) =>
+  invoke<CalibrationSample[]>("generate_calibration_samples", { personaId });
+
+export const submitCalibrationFeedback = (personaId: string, feedbackItems: CalibrationFeedbackItem[], freeText?: string) =>
+  invoke<{ success: boolean; version: number }>("submit_calibration_feedback", { personaId, feedbackItems, freeText });
+
 // ── Bridge (Chrome Extension) ──
 export const startWsBridge = (port?: number) =>
   invoke("start_ws_bridge", { port });
@@ -124,3 +132,21 @@ export const checkAppUpdate = () => invoke<UpdateCheckResult>("check_app_update"
 export const downloadAndInstallUpdate = () => invoke("download_and_install_update");
 
 export const restartAfterUpdate = () => invoke("restart_after_update");
+
+// ── Settings Extended ──
+export const saveAiSettings = (provider: string, apiKey: string, baseUrl: string, model: string) =>
+  invoke("save_settings", { provider, apiKey, baseUrl, model });
+
+export const validateKey = (provider: string, apiKey: string, baseUrl: string, model: string) =>
+  invoke<boolean>("validate_api_key", { provider, apiKey, baseUrl, model });
+
+// ── Backup/Export ──
+export const exportPersona = (personaId: string, outputPath: string) =>
+  invoke<string>("export_persona", { personaId, outputPath });
+
+// ── Proactive Settings ──
+export const getProactiveSettings = (id: string) =>
+  invoke<{ enabled: boolean; rules: string }>("get_proactive_settings", { id });
+
+export const saveProactiveSettings = (id: string, enabled: boolean, rulesJson: string) =>
+  invoke("save_proactive_settings", { id, enabled, rulesJson });

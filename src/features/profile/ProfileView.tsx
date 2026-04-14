@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { AVATAR_EMOJI_PRESETS } from "@/lib/constants";
-import { getPersona, deletePersona, getPersonaVersions, rollbackPersona, getPersonaVoice, uploadAndCloneVoice, removePersonaVoice, setPersonaVoice, speakText, checkFfmpeg, toggleClipboardWatcher, appendClipboardCorpus } from "@/lib/tauri";
+import { getPersona, deletePersona, getPersonaVersions, rollbackPersona, getPersonaVoice, uploadAndCloneVoice, removePersonaVoice, setPersonaVoice, speakText, checkFfmpeg, toggleClipboardWatcher, appendClipboardCorpus, exportPersona } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { Persona, VersionSummary, PersonaVoice } from "@/types";
-import { ArrowLeft, Trash2, RotateCcw, ChevronDown, ChevronUp, Save, X, Pencil, Mic, Volume2, Unlink, Loader2, Film } from "lucide-react";
+import { ArrowLeft, Trash2, RotateCcw, ChevronDown, ChevronUp, Save, X, Pencil, Mic, Volume2, Unlink, Loader2, Film, Download } from "lucide-react";
 import { toast } from "sonner";
+import { ProactiveSettings } from "./ProactiveSettings";
 
 const VIDEO_EXTENSIONS = ["mp4", "mov", "mkv", "avi", "webm", "flv", "wmv"];
 
@@ -41,6 +42,7 @@ export function ProfileView() {
   const [editMemoriesMd, setEditMemoriesMd] = useState(false);
   const [draftMemoriesMd, setDraftMemoriesMd] = useState("");
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Voice state
   const [voice, setVoice] = useState<PersonaVoice | null>(null);
@@ -90,6 +92,25 @@ export function ProfileView() {
       unlisten.then((fn) => fn());
     };
   }, [personaId]);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      // Get home directory using Tauri path API
+      const { homeDir } = await import('@tauri-apps/api/path');
+      const home = await homeDir();
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+      const fileName = `memora-export-${persona?.slug || personaId}-${timestamp}.zip`;
+      const outputPath = `${home}/Downloads/${fileName}`;
+      
+      await exportPersona(personaId, outputPath);
+      toast.success(`已导出到 Downloads: ${fileName}`);
+    } catch (e) {
+      toast.error(`导出失败: ${e}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleDelete = async () => {
     try {
@@ -538,6 +559,11 @@ export function ProfileView() {
               )}
             </div>
           </section>
+          {/* Proactive Settings */}
+          <section style={styles.section}>
+            <ProactiveSettings personaId={personaId} />
+          </section>
+
           {/* Versions */}
           {versions.length > 1 && (
             <section style={styles.section}>
@@ -570,6 +596,33 @@ export function ProfileView() {
               )}
             </section>
           )}
+
+          {/* Export Backup */}
+          <section style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <span style={styles.sectionTitle}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                备份导出
+              </span>
+            </div>
+            <div style={{ padding: "14px 18px" }}>
+              <p className="text-caption" style={{ marginBottom: 12, color: "var(--color-earth-500)" }}>
+                导出角色的所有数据（性格定义、记忆、聊天记录）为 ZIP 文件
+              </p>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exporting}
+                style={{ ...styles.rollbackBtn, opacity: exporting ? 0.5 : 1 }}
+              >
+                {exporting ? (
+                  <><Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} /> 导出中...</>
+                ) : (
+                  <><Download size={14} style={{ marginRight: 6 }} /> 导出备份</>
+                )}
+              </button>
+            </div>
+          </section>
 
           {/* Danger Zone */}
           <section style={{ ...styles.section, borderColor: "var(--color-coral-400)" }}>

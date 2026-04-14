@@ -65,9 +65,45 @@ pub async fn append_clipboard_corpus(id: String, content: String) -> Result<(), 
         let pool = memora_pool();
         let conn = pool.get()?;
         let now = chrono::Utc::now().to_rfc3339();
-        let append_md = format!("\n\n### 自动捕捉的语料 ({})\n```text\n{}\n```\n", now, content);
+        let append_md = format!("\n\n### 自动捕捉的语料 ({})
+```text\n{}\n```\n", now, content);
         crate::repo::persona_repo::append_memories(&conn, &id, &append_md, &now)
     })
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?
+}
+
+/// Proactive settings response struct.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProactiveSettings {
+    pub enabled: bool,
+    pub rules: Option<String>,
+}
+
+/// Save proactive reach-out settings for a persona.
+#[tauri::command]
+#[tracing::instrument(err)]
+pub async fn save_proactive_settings(
+    id: String,
+    enabled: bool,
+    rules_json: Option<String>,
+) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || {
+        let pool = memora_pool();
+        let conn = pool.get()?;
+        let now = chrono::Utc::now().to_rfc3339();
+        persona_repo::save_proactive_settings(&conn, &id, enabled, rules_json.as_deref(), &now)
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?
+}
+
+/// Get proactive reach-out settings for a persona.
+#[tauri::command]
+#[tracing::instrument(err)]
+pub async fn get_proactive_settings(id: String) -> Result<ProactiveSettings, AppError> {
+    let pool = memora_pool();
+    let conn = pool.get()?;
+    let (enabled, rules) = persona_repo::get_proactive_settings(&conn, &id)?;
+    Ok(ProactiveSettings { enabled, rules })
 }

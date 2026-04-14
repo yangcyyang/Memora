@@ -12,6 +12,7 @@ import { CreateWizard } from "@/features/create/CreateWizard";
 import { ChatView } from "@/features/chat/ChatView";
 import { SettingsView } from "@/features/settings/SettingsView";
 import { ProfileView } from "@/features/profile/ProfileView";
+import { DataImport } from "@/features/import";
 
 // ── Root ────────────────────────────────────────────────────────────
 const rootRoute = createRootRoute({ component: App });
@@ -53,6 +54,12 @@ export const settingsRoute = createRoute({
   component: SettingsView,
 });
 
+export const importRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/import",
+  component: DataImport,
+});
+
 // ── Route Tree ──────────────────────────────────────────────────────
 const routeTree = rootRoute.addChildren([
   welcomeRoute,
@@ -61,6 +68,7 @@ const routeTree = rootRoute.addChildren([
   chatRoute,
   profileRoute,
   settingsRoute,
+  importRoute,
 ]);
 
 // ── Router ──────────────────────────────────────────────────────────

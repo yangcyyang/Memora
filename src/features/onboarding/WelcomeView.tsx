@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { PROVIDER_OPTIONS } from "@/lib/constants";
-import { saveSettings, validateApiKey } from "@/lib/tauri";
+import { saveAiSettings, validateKey } from "@/lib/tauri";
 import { toast } from "sonner";
 
 export function WelcomeView() {
@@ -29,9 +29,9 @@ export function WelcomeView() {
     }
     setValidating(true);
     try {
-      const valid = await validateApiKey(provider.id, apiKey, baseUrl, model);
+      const valid = await validateKey(provider.id, apiKey, baseUrl, model);
       if (valid) {
-        await saveSettings(provider.id, apiKey, baseUrl, model);
+        await saveAiSettings(provider.id, apiKey, baseUrl, model);
         toast.success("连接成功！");
         onComplete();
       } else {
@@ -46,7 +46,7 @@ export function WelcomeView() {
 
   const handleSkip = async () => {
     try {
-      await saveSettings(provider.id, apiKey, baseUrl, model);
+      await saveAiSettings(provider.id, apiKey, baseUrl, model);
       toast.success("已保存");
       onComplete();
     } catch (e) {
