@@ -173,6 +173,7 @@ html {
   font-kerning: normal;
 }
 
+/* Default: Light mode */
 body {
   font-family: var(--font-body);
   background: var(--color-cream-50);
@@ -181,14 +182,17 @@ body {
   letter-spacing: 0.01em;
   overflow: hidden;
   min-height: 100vh;
-  /* Subtle paper texture via CSS */
+  /* Subtle warm paper texture for light mode */
   background-image:
-    radial-gradient(ellipse at 20% 50%, oklch(97% 0.015 68 / 0.5) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 20%, oklch(96% 0.01 290 / 0.3) 0%, transparent 50%);
+    radial-gradient(ellipse at 20% 50%, oklch(98% 0.012 70 / 0.6) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, oklch(97% 0.008 290 / 0.4) 0%, transparent 50%);
   transition: background-color var(--duration-normal), color var(--duration-normal);
 }
 
+/* Dark mode overrides */
 html.dark body {
+  background: var(--color-cream-50);
+  color: var(--color-earth-800);
   background-image:
     radial-gradient(ellipse at 20% 50%, oklch(20% 0.015 60 / 0.4) 0%, transparent 60%),
     radial-gradient(ellipse at 80% 20%, oklch(18% 0.02 290 / 0.25) 0%, transparent 50%);

@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
-import { ArrowLeft, Eye, EyeOff, Check, AlertCircle, Server, Key, Sparkles, Power } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Check, AlertCircle, Server, Key, Sparkles, Power, Sun, Moon, Monitor } from "lucide-react";
 import { getSettings, saveAiSettings, validateKey } from "@/lib/tauri";
+import { useTheme } from "@/hooks/useTheme";
 // import type { AppSettings } from "@/types";
 
 const AI_PROVIDERS = [
@@ -18,6 +19,7 @@ type Mode = "managed" | "advanced";
 
 export function SettingsView() {
   const navigate = useNavigate();
+  const { mode: themeMode, setMode: setThemeMode } = useTheme();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
@@ -335,6 +337,53 @@ export function SettingsView() {
             </section>
           )}
 
+          {/* Appearance Settings */}
+          <section style={styles.section}>
+            <h2 style={styles.sectionTitle}>
+              <Sun size={16} style={{ marginRight: 6 }} />
+              外观
+            </h2>
+            <div style={styles.appearanceGrid}>
+              <button
+                type="button"
+                onClick={() => setThemeMode("light")}
+                style={{
+                  ...styles.appearanceCard,
+                  borderColor: themeMode === "light" ? "var(--color-rose-400)" : "var(--color-cream-300)",
+                  background: themeMode === "light" ? "var(--color-rose-50)" : "white",
+                }}
+              >
+                <Sun size={20} style={{ color: "var(--color-amber-500)", marginBottom: 8 }} />
+                <div style={styles.appearanceName}>浅色</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setThemeMode("dark")}
+                style={{
+                  ...styles.appearanceCard,
+                  borderColor: themeMode === "dark" ? "var(--color-rose-400)" : "var(--color-cream-300)",
+                  background: themeMode === "dark" ? "var(--color-rose-50)" : "white",
+                }}
+              >
+                <Moon size={20} style={{ color: "var(--color-lavender-500)", marginBottom: 8 }} />
+                <div style={styles.appearanceName}>深色</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setThemeMode("system")}
+                style={{
+                  ...styles.appearanceCard,
+                  borderColor: themeMode === "system" ? "var(--color-rose-400)" : "var(--color-cream-300)",
+                  background: themeMode === "system" ? "var(--color-rose-50)" : "white",
+                }}
+              >
+                <Monitor size={20} style={{ color: "var(--color-earth-500)", marginBottom: 8 }} />
+                <div style={styles.appearanceName}>跟随系统</div>
+              </button>
+            </div>
+          </section>
+
+          {/* System Settings */}
           <section style={styles.section}>
             <h2 style={styles.sectionTitle}>
               <Power size={16} style={{ marginRight: 6 }} />
@@ -443,4 +492,9 @@ const styles: Record<string, React.CSSProperties> = {
   
   // Primary button
   primaryBtn: { padding: "14px 28px", background: "var(--color-rose-500)", color: "white", border: "none", borderRadius: "var(--radius-md)", fontSize: "1rem", fontWeight: 500, cursor: "pointer", fontFamily: "var(--font-body)", transition: "all var(--duration-fast)" },
+  
+  // Appearance
+  appearanceGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 },
+  appearanceCard: { padding: "16px 12px", border: "2px solid", borderRadius: "var(--radius-md)", cursor: "pointer", transition: "all var(--duration-fast)", textAlign: "center" },
+  appearanceName: { fontSize: "0.85rem", fontWeight: 500, color: "var(--color-earth-700)" },
 };

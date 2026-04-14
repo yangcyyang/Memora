@@ -5,7 +5,6 @@ import { listen } from "@tauri-apps/api/event";
 import { getSettings, listPersonas } from "@/lib/tauri";
 import { useTheme } from "@/hooks/useTheme";
 import { Sidebar } from "@/components/Sidebar";
-import { cn } from "@/lib/utils";
 
 export default function App() {
   const navigate = useNavigate();
@@ -69,8 +68,8 @@ export default function App() {
 
   if (!ready) {
     return (
-      <div className="flex items-center justify-center w-full h-screen bg-[#0F0F14]">
-        <span className="animate-pulse text-2xl text-[#6366F1] font-semibold">
+      <div className="flex items-center justify-center w-full h-screen bg-[var(--color-cream-50)]">
+        <span className="animate-pulse text-2xl text-[var(--color-rose-500)] font-semibold">
           Memora
         </span>
       </div>
@@ -84,9 +83,9 @@ export default function App() {
         theme={resolved}
         toastOptions={{
           style: {
-            background: "#1A1A23",
-            color: "#F8FAFC",
-            border: "1px solid #2D2D3D",
+            background: resolved === "dark" ? "#1A1A23" : "#FFFFFF",
+            color: resolved === "dark" ? "#F8FAFC" : "#1A1A1A",
+            border: resolved === "dark" ? "1px solid #2D2D3D" : "1px solid #E0E0E0",
           },
         }}
       />
@@ -95,7 +94,7 @@ export default function App() {
         <Outlet />
       ) : (
         // 主应用布局：侧边栏 + 内容区
-        <div className="flex h-screen bg-[#0F0F14]">
+        <div className="flex h-screen bg-[var(--color-cream-50)]">
           <Sidebar
             currentPersonaId={currentPersonaId}
             onSelectPersona={handleSelectPersona}
