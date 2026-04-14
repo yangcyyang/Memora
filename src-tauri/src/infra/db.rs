@@ -153,6 +153,12 @@ pub fn initialize_db() -> Result<()> {
     )
     .context("Failed to create database tables")?;
 
+    // ── Migrations for existing databases ───────────────────────────────
+    // SQLite does not support ALTER TABLE IF NOT EXISTS, so we attempt
+    // the column additions and ignore the error if they already exist.
+    let _ = conn.execute("ALTER TABLE personas ADD COLUMN proactive_enabled INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE personas ADD COLUMN proactive_rules TEXT", []);
+
     info!("Database initialized successfully");
     Ok(())
 }
