@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Context;
-use instant_distance::{HnswMap, Point, Search};
+use instant_distance::{Builder, HnswMap, Point, Search};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
@@ -45,7 +45,7 @@ impl VectorIndex {
                 persona_id: persona_id.to_string(),
                 dimension: 0,
                 records: Vec::new(),
-                index: instant_distance::HnswMap::builder().build(Vec::new(), Vec::new()),
+                index: Builder::default().build(Vec::new(), Vec::new()),
                 updated_at: chrono::Utc::now().to_rfc3339(),
             },
         }
@@ -175,7 +175,7 @@ impl VectorIndex {
             .map(|record| record.id.clone())
             .collect::<Vec<_>>();
 
-        self.inner.index = instant_distance::HnswMap::builder().build(points, values);
+        self.inner.index = Builder::default().build(points, values);
     }
 }
 
