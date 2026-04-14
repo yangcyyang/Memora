@@ -150,3 +150,10 @@ export const getProactiveSettings = (id: string) =>
 
 export const saveProactiveSettings = (id: string, enabled: boolean, rulesJson: string) =>
   invoke("save_proactive_settings", { id, enabled, rulesJson });
+
+export const triggerProactiveTest = (personaId: string) =>
+  invoke("send_notification", { title: "主动触达测试", body: "测试通知", personaId });
+
+// ── STT ──
+export const transcribeAudio = (audioBase64: string, mimeType: string) =>
+  invoke<string>("transcribe_audio", { audioBase64, mimeType });

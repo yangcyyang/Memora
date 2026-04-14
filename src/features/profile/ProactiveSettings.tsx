@@ -1,13 +1,32 @@
 import { useState, useEffect } from "react";
-import { Bell, Calendar, Clock, MessageCircle, Plus, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Bell, Calendar, Clock, MessageCircle, Plus, Trash2, ToggleLeft, ToggleRight, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { getProactiveSettings, saveProactiveSettings } from "@/lib/tauri";
+import { getProactiveSettings, saveProactiveSettings, triggerProactiveTest } from "@/lib/tauri";
+
+// 对齐 PF-12 Rust 规则格式
+interface IdleRule {
+  type: "Idle";
+  days: number;
+}
+
+interface DailyRule {
+  type: "Daily";
+  time: string;
+}
+
+interface DateRule {
+  type: "Date";
+  month_day: string;
+  description?: string;
+}
+
+type ProactiveRule = IdleRule | DailyRule | DateRule;
 
 interface ProactiveConfig {
   enabled: boolean;
-  importantDates: { date: string; description: string }[];
-  overdueReminderDays: number;
-  scheduledGreetings: { time: string; message: string }[];
+  idle?: IdleRule;
+  daily?: DailyRule;
+  dates: DateRule[];
 }
 
 interface ProactiveSettingsProps {
@@ -16,10 +35,44 @@ interface ProactiveSettingsProps {
 
 const defaultConfig: ProactiveConfig = {
   enabled: false,
-  importantDates: [],
-  overdueReminderDays: 3,
-  scheduledGreetings: [],
+  idle: { type: "Idle", days: 7 },
+  daily: { type: "Daily", time: "09:00" },
+  dates: [],
 };
+
+function rulesToConfig(rules: ProactiveRule[], enabled: boolean): ProactiveConfig {
+  const config: ProactiveConfig = { enabled, idle: undefined, daily: undefined, dates: [] };
+  for (const rule of rules) {
+    if (rule.type === "Idle") config.idle = rule;
+    else if (rule.type === "Daily") config.daily = rule;
+    else if (rule.type === "Date") config.dates.push(rule);
+  }
+  if (!config.idle) config.idle = { type: "Idle", days: 7 };
+  if (!config.daily) config.daily = { type: "Daily", time: "09:00" };
+  return config;
+}
+
+function configToRules(config: ProactiveConfig): ProactiveRule[] {
+  const rules: ProactiveRule[] = [];
+  if (config.idle && config.idle.days > 0) rules.push(config.idle);
+  if (config.daily && config.daily.time) rules.push(config.daily);
+  rules.push(...config.dates.filter(d => d.month_day));
+  return rules;
+}
+
+// 兼容旧格式转换
+function migrateLegacyRules(rules: any[]): ProactiveRule[] {
+  const proactiveRules: ProactiveRule[] = [];
+  for (const r of rules) {
+    if (r.type === "Idle" || r.type === "Daily" || r.type === "Date") {
+      proactiveRules.push(r);
+    } else if (r.date && typeof r.date === "string") {
+      // 旧格式 importantDates
+      proactiveRules.push({ type: "Date", month_day: r.date.slice(5), description: r.description });
+    }
+  }
+  return proactiveRules;
+}
 
 export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
   const [config, setConfig] = useState<ProactiveConfig>(defaultConfig);
@@ -33,12 +86,15 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
         const result = await getProactiveSettings(personaId);
         if (result.rules) {
           const parsed = JSON.parse(result.rules);
-          setConfig({ ...defaultConfig, ...parsed, enabled: result.enabled });
+          let rules: ProactiveRule[] = Array.isArray(parsed) ? parsed : parsed.rules || [];
+          // 兼容旧格式
+          rules = migrateLegacyRules(rules);
+          const loadedConfig = rulesToConfig(rules, result.enabled);
+          setConfig(loadedConfig);
         } else {
           setConfig({ ...defaultConfig, enabled: result.enabled });
         }
       } catch {
-        // No settings saved yet, use defaults
         setConfig(defaultConfig);
       }
     };
@@ -47,11 +103,8 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
 
   const saveConfig = async () => {
     try {
-      const rulesJson = JSON.stringify({
-        importantDates: draftConfig.importantDates,
-        overdueReminderDays: draftConfig.overdueReminderDays,
-        scheduledGreetings: draftConfig.scheduledGreetings,
-      });
+      const rules = configToRules(draftConfig);
+      const rulesJson = JSON.stringify(rules);
       await saveProactiveSettings(personaId, draftConfig.enabled, rulesJson);
       setConfig(draftConfig);
       setIsEditing(false);
@@ -61,45 +114,64 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
     }
   };
 
+  const handleTestNotification = async () => {
+    try {
+      await triggerProactiveTest(personaId);
+      toast.success("测试通知已发送");
+    } catch (e) {
+      toast.error(`发送失败: ${e}`);
+    }
+  };
+
   const handleToggle = () => {
     const newConfig = { ...draftConfig, enabled: !draftConfig.enabled };
     setDraftConfig(newConfig);
   };
 
-  const addImportantDate = () => {
-    setDraftConfig({
-      ...draftConfig,
-      importantDates: [...draftConfig.importantDates, { date: "", description: "" }],
-    });
+  const toggleIdle = () => {
+    setDraftConfig(prev => ({
+      ...prev,
+      idle: prev.idle ? undefined : { type: "Idle", days: 7 },
+    }));
   };
 
-  const updateImportantDate = (index: number, field: "date" | "description", value: string) => {
-    const newDates = [...draftConfig.importantDates];
+  const updateIdleDays = (days: number) => {
+    setDraftConfig(prev => ({
+      ...prev,
+      idle: prev.idle ? { ...prev.idle, days } : { type: "Idle", days },
+    }));
+  };
+
+  const toggleDaily = () => {
+    setDraftConfig(prev => ({
+      ...prev,
+      daily: prev.daily ? undefined : { type: "Daily", time: "09:00" },
+    }));
+  };
+
+  const updateDailyTime = (time: string) => {
+    setDraftConfig(prev => ({
+      ...prev,
+      daily: prev.daily ? { ...prev.daily, time } : { type: "Daily", time },
+    }));
+  };
+
+  const addDate = () => {
+    setDraftConfig(prev => ({
+      ...prev,
+      dates: [...prev.dates, { type: "Date", month_day: "", description: "" }],
+    }));
+  };
+
+  const updateDate = (index: number, field: "month_day" | "description", value: string) => {
+    const newDates = [...draftConfig.dates];
     newDates[index] = { ...newDates[index], [field]: value };
-    setDraftConfig({ ...draftConfig, importantDates: newDates });
+    setDraftConfig({ ...draftConfig, dates: newDates });
   };
 
-  const removeImportantDate = (index: number) => {
-    const newDates = draftConfig.importantDates.filter((_, i) => i !== index);
-    setDraftConfig({ ...draftConfig, importantDates: newDates });
-  };
-
-  const addScheduledGreeting = () => {
-    setDraftConfig({
-      ...draftConfig,
-      scheduledGreetings: [...draftConfig.scheduledGreetings, { time: "09:00", message: "" }],
-    });
-  };
-
-  const updateScheduledGreeting = (index: number, field: "time" | "message", value: string) => {
-    const newGreetings = [...draftConfig.scheduledGreetings];
-    newGreetings[index] = { ...newGreetings[index], [field]: value };
-    setDraftConfig({ ...draftConfig, scheduledGreetings: newGreetings });
-  };
-
-  const removeScheduledGreeting = (index: number) => {
-    const newGreetings = draftConfig.scheduledGreetings.filter((_, i) => i !== index);
-    setDraftConfig({ ...draftConfig, scheduledGreetings: newGreetings });
+  const removeDate = (index: number) => {
+    const newDates = draftConfig.dates.filter((_, i) => i !== index);
+    setDraftConfig({ ...draftConfig, dates: newDates });
   };
 
   if (!isEditing) {
@@ -111,7 +183,7 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
             <span>主动触达</span>
             <span style={{
               ...styles.statusBadge,
-              background: config.enabled ? "var(--color-sage-400)/20" : "var(--color-earth-400)/20",
+              background: config.enabled ? "rgba(148, 196, 154, 0.2)" : "rgba(156, 150, 138, 0.2)",
               color: config.enabled ? "var(--color-sage-500)" : "var(--color-earth-500)",
             }}>
               {config.enabled ? "已开启" : "已关闭"}
@@ -128,27 +200,27 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
 
         {config.enabled && (
           <div style={styles.summary}>
-            {config.importantDates.length > 0 && (
-              <div style={styles.summaryItem}>
-                <Calendar size={14} />
-                <span className="text-caption">
-                  {config.importantDates.length} 个重要日期
-                </span>
-              </div>
-            )}
-            {config.overdueReminderDays > 0 && (
+            {config.idle && (
               <div style={styles.summaryItem}>
                 <Clock size={14} />
                 <span className="text-caption">
-                  {config.overdueReminderDays} 天未回复提醒
+                  {config.idle.days} 天未回复提醒
                 </span>
               </div>
             )}
-            {config.scheduledGreetings.length > 0 && (
+            {config.daily && (
               <div style={styles.summaryItem}>
                 <MessageCircle size={14} />
                 <span className="text-caption">
-                  {config.scheduledGreetings.length} 个定时问候
+                  每日 {config.daily.time} 问候
+                </span>
+              </div>
+            )}
+            {config.dates.length > 0 && (
+              <div style={styles.summaryItem}>
+                <Calendar size={14} />
+                <span className="text-caption">
+                  {config.dates.length} 个重要日期
                 </span>
               </div>
             )}
@@ -171,11 +243,7 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleToggle}
-          style={styles.toggleBtn}
-        >
+        <button type="button" onClick={handleToggle} style={styles.toggleBtn}>
           {draftConfig.enabled ? (
             <ToggleRight size={32} style={{ color: "var(--color-rose-500)" }} />
           ) : (
@@ -186,6 +254,83 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
 
       {draftConfig.enabled && (
         <div style={styles.settingsPanel} className="animate-slide-up">
+          {/* Idle Reminder */}
+          <div style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <Clock size={14} />
+              <span className="text-caption" style={{ fontWeight: 600 }}>长时间未互动提醒</span>
+              <label style={styles.switchLabel}>
+                <input
+                  type="checkbox"
+                  checked={!!draftConfig.idle}
+                  onChange={toggleIdle}
+                  style={{ display: "none" }}
+                />
+                <span style={{
+                  ...styles.switch,
+                  background: draftConfig.idle ? "var(--color-rose-500)" : "var(--color-cream-300)",
+                }}>
+                  <span style={{
+                    ...styles.switchThumb,
+                    transform: draftConfig.idle ? "translateX(14px)" : "translateX(0)",
+                  }} />
+                </span>
+              </label>
+            </div>
+            {draftConfig.idle && (
+              <div style={styles.sliderRow}>
+                <span className="text-small">超过</span>
+                <select
+                  value={draftConfig.idle.days}
+                  onChange={(e) => updateIdleDays(Number(e.target.value))}
+                  style={styles.select}
+                >
+                  {[1, 2, 3, 5, 7].map(d => (
+                    <option key={d} value={d}>{d} 天</option>
+                  ))}
+                </select>
+                <span className="text-small">未聊天，AI 主动发起对话</span>
+              </div>
+            )}
+          </div>
+
+          {/* Daily Greeting */}
+          <div style={styles.section}>
+            <div style={styles.sectionHeader}>
+              <MessageCircle size={14} />
+              <span className="text-caption" style={{ fontWeight: 600 }}>每日定时问候</span>
+              <label style={styles.switchLabel}>
+                <input
+                  type="checkbox"
+                  checked={!!draftConfig.daily}
+                  onChange={toggleDaily}
+                  style={{ display: "none" }}
+                />
+                <span style={{
+                  ...styles.switch,
+                  background: draftConfig.daily ? "var(--color-rose-500)" : "var(--color-cream-300)",
+                }}>
+                  <span style={{
+                    ...styles.switchThumb,
+                    transform: draftConfig.daily ? "translateX(14px)" : "translateX(0)",
+                  }} />
+                </span>
+              </label>
+            </div>
+            {draftConfig.daily && (
+              <div style={styles.sliderRow}>
+                <span className="text-small">每天</span>
+                <input
+                  type="time"
+                  value={draftConfig.daily.time}
+                  onChange={(e) => updateDailyTime(e.target.value)}
+                  style={styles.timeInput}
+                />
+                <span className="text-small">发送问候</span>
+              </div>
+            )}
+          </div>
+
           {/* Important Dates */}
           <div style={styles.section}>
             <div style={styles.sectionHeader}>
@@ -193,27 +338,29 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
               <span className="text-caption" style={{ fontWeight: 600 }}>重要日期提醒</span>
             </div>
             <p className="text-small" style={{ color: "var(--color-earth-500)", marginBottom: 12 }}>
-              纪念日、生日等特殊日期，AI 会提前发送祝福
+              纪念日、生日等特殊日期，AI 会提前发送祝福（每年重复）
             </p>
             
-            {draftConfig.importantDates.map((date, index) => (
+            {draftConfig.dates.map((date, index) => (
               <div key={index} style={styles.inputRow}>
                 <input
-                  type="date"
-                  value={date.date}
-                  onChange={(e) => updateImportantDate(index, "date", e.target.value)}
-                  style={styles.dateInput}
+                  type="text"
+                  placeholder="MM-DD"
+                  value={date.month_day}
+                  onChange={(e) => updateDate(index, "month_day", e.target.value)}
+                  style={{ ...styles.monthDayInput, width: 80 }}
+                  maxLength={5}
                 />
                 <input
                   type="text"
                   placeholder="描述（如：生日）"
-                  value={date.description}
-                  onChange={(e) => updateImportantDate(index, "description", e.target.value)}
+                  value={date.description || ""}
+                  onChange={(e) => updateDate(index, "description", e.target.value)}
                   style={styles.textInput}
                 />
                 <button
                   type="button"
-                  onClick={() => removeImportantDate(index)}
+                  onClick={() => removeDate(index)}
                   style={styles.iconBtn}
                 >
                   <Trash2 size={16} style={{ color: "var(--color-coral-500)" }} />
@@ -221,73 +368,23 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
               </div>
             ))}
             
-            <button type="button" onClick={addImportantDate} style={styles.addBtn}>
+            <button type="button" onClick={addDate} style={styles.addBtn}>
               <Plus size={14} />
               添加日期
             </button>
           </div>
 
-          {/* Overdue Reminder */}
+          {/* Test Button */}
           <div style={styles.section}>
             <div style={styles.sectionHeader}>
-              <Clock size={14} />
-              <span className="text-caption" style={{ fontWeight: 600 }}>超期未回复提醒</span>
-            </div>
-            <div style={styles.sliderRow}>
-              <span className="text-small">超过</span>
-              <select
-                value={draftConfig.overdueReminderDays}
-                onChange={(e) => setDraftConfig({ ...draftConfig, overdueReminderDays: Number(e.target.value) })}
-                style={styles.select}
-              >
-                <option value={1}>1 天</option>
-                <option value={2}>2 天</option>
-                <option value={3}>3 天</option>
-                <option value={5}>5 天</option>
-                <option value={7}>7 天</option>
-              </select>
-              <span className="text-small">未聊天，AI 主动发起对话</span>
-            </div>
-          </div>
-
-          {/* Scheduled Greetings */}
-          <div style={styles.section}>
-            <div style={styles.sectionHeader}>
-              <MessageCircle size={14} />
-              <span className="text-caption" style={{ fontWeight: 600 }}>定时问候</span>
+              <Zap size={14} />
+              <span className="text-caption" style={{ fontWeight: 600 }}>测试通知</span>
             </div>
             <p className="text-small" style={{ color: "var(--color-earth-500)", marginBottom: 12 }}>
-              在特定时间发送问候消息
+              立即发送一条测试通知，验证系统通知和跳转功能
             </p>
-            
-            {draftConfig.scheduledGreetings.map((greeting, index) => (
-              <div key={index} style={styles.inputRow}>
-                <input
-                  type="time"
-                  value={greeting.time}
-                  onChange={(e) => updateScheduledGreeting(index, "time", e.target.value)}
-                  style={styles.timeInput}
-                />
-                <input
-                  type="text"
-                  placeholder="问候语"
-                  value={greeting.message}
-                  onChange={(e) => updateScheduledGreeting(index, "message", e.target.value)}
-                  style={styles.textInput}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeScheduledGreeting(index)}
-                  style={styles.iconBtn}
-                >
-                  <Trash2 size={16} style={{ color: "var(--color-coral-500)" }} />
-                </button>
-              </div>
-            ))}
-            
-            <button type="button" onClick={addScheduledGreeting} style={styles.addBtn}>
-              <Plus size={14} />
-              添加问候
+            <button type="button" onClick={handleTestNotification} style={styles.testBtn}>
+              发送测试通知
             </button>
           </div>
         </div>
@@ -311,194 +408,32 @@ export function ProactiveSettings({ personaId }: ProactiveSettingsProps) {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: {
-    padding: "16px 18px",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  title: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    fontSize: "0.9rem",
-    fontWeight: 600,
-    color: "var(--color-earth-700)",
-  },
-  statusBadge: {
-    padding: "2px 8px",
-    borderRadius: "var(--radius-full)",
-    fontSize: "0.7rem",
-    fontWeight: 500,
-  },
-  editBtn: {
-    padding: "6px 14px",
-    borderRadius: "var(--radius-sm)",
-    border: "1px solid var(--color-cream-300)",
-    background: "var(--color-cream-100)",
-    fontSize: "0.8rem",
-    cursor: "pointer",
-    fontFamily: "var(--font-body)",
-    color: "var(--color-earth-600)",
-    transition: "all var(--duration-fast)",
-  },
-  summary: {
-    marginTop: 12,
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  },
-  summaryItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    color: "var(--color-earth-600)",
-  },
-  toggleRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingBottom: 16,
-    borderBottom: "1px solid var(--color-cream-200)",
-  },
-  toggleInfo: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  toggleBtn: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    padding: 0,
-    display: "flex",
-    alignItems: "center",
-  },
-  settingsPanel: {
-    paddingTop: 16,
-    display: "flex",
-    flexDirection: "column",
-    gap: 20,
-  },
-  section: {
-    padding: "12px",
-    background: "var(--color-cream-50)",
-    borderRadius: "var(--radius-md)",
-    border: "1px solid var(--color-cream-200)",
-  },
-  sectionHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-    color: "var(--color-earth-700)",
-  },
-  inputRow: {
-    display: "flex",
-    gap: 8,
-    marginBottom: 8,
-    alignItems: "center",
-  },
-  dateInput: {
-    padding: "6px 10px",
-    borderRadius: "var(--radius-sm)",
-    border: "1.5px solid var(--color-cream-300)",
-    background: "white",
-    fontSize: "0.8rem",
-    fontFamily: "var(--font-body)",
-    color: "var(--color-earth-700)",
-    outline: "none",
-  },
-  timeInput: {
-    padding: "6px 10px",
-    borderRadius: "var(--radius-sm)",
-    border: "1.5px solid var(--color-cream-300)",
-    background: "white",
-    fontSize: "0.8rem",
-    fontFamily: "var(--font-body)",
-    color: "var(--color-earth-700)",
-    outline: "none",
-    width: 100,
-  },
-  textInput: {
-    flex: 1,
-    padding: "6px 10px",
-    borderRadius: "var(--radius-sm)",
-    border: "1.5px solid var(--color-cream-300)",
-    background: "white",
-    fontSize: "0.8rem",
-    fontFamily: "var(--font-body)",
-    color: "var(--color-earth-700)",
-    outline: "none",
-  },
-  select: {
-    padding: "6px 10px",
-    borderRadius: "var(--radius-sm)",
-    border: "1.5px solid var(--color-cream-300)",
-    background: "white",
-    fontSize: "0.8rem",
-    fontFamily: "var(--font-body)",
-    color: "var(--color-earth-700)",
-    outline: "none",
-  },
-  sliderRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  iconBtn: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    padding: 4,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: "var(--radius-sm)",
-  },
-  addBtn: {
-    display: "flex",
-    alignItems: "center",
-    gap: 4,
-    padding: "6px 12px",
-    borderRadius: "var(--radius-sm)",
-    border: "1px dashed var(--color-cream-300)",
-    background: "none",
-    fontSize: "0.8rem",
-    cursor: "pointer",
-    fontFamily: "var(--font-body)",
-    color: "var(--color-earth-500)",
-    marginTop: 4,
-  },
-  actions: {
-    display: "flex",
-    gap: 12,
-    marginTop: 20,
-    paddingTop: 16,
-    borderTop: "1px solid var(--color-cream-200)",
-  },
-  saveBtn: {
-    padding: "8px 20px",
-    background: "var(--color-rose-500)",
-    color: "white",
-    border: "none",
-    borderRadius: "var(--radius-md)",
-    fontSize: "0.9rem",
-    fontWeight: 500,
-    cursor: "pointer",
-    fontFamily: "var(--font-body)",
-  },
-  cancelBtn: {
-    padding: "8px 16px",
-    background: "none",
-    border: "1px solid var(--color-cream-300)",
-    borderRadius: "var(--radius-md)",
-    fontSize: "0.9rem",
-    cursor: "pointer",
-    fontFamily: "var(--font-body)",
-    color: "var(--color-earth-500)",
-  },
+  container: { padding: "16px 18px" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  title: { display: "flex", alignItems: "center", gap: 8, fontSize: "0.9rem", fontWeight: 600, color: "var(--color-earth-700)" },
+  statusBadge: { padding: "2px 8px", borderRadius: "var(--radius-full)", fontSize: "0.7rem", fontWeight: 500 },
+  editBtn: { padding: "6px 14px", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-cream-300)", background: "var(--color-cream-100)", fontSize: "0.8rem", cursor: "pointer", fontFamily: "var(--font-body)", color: "var(--color-earth-600)", transition: "all var(--duration-fast)" },
+  summary: { marginTop: 12, display: "flex", flexDirection: "column", gap: 8 },
+  summaryItem: { display: "flex", alignItems: "center", gap: 8, color: "var(--color-earth-600)" },
+  toggleRow: { display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 16, borderBottom: "1px solid var(--color-cream-200)" },
+  toggleInfo: { display: "flex", alignItems: "flex-start", gap: 12 },
+  toggleBtn: { background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" },
+  settingsPanel: { paddingTop: 16, display: "flex", flexDirection: "column", gap: 20 },
+  section: { padding: "12px", background: "var(--color-cream-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-cream-200)" },
+  sectionHeader: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, color: "var(--color-earth-700)" },
+  switchLabel: { marginLeft: "auto", cursor: "pointer", display: "flex", alignItems: "center" },
+  switch: { width: 32, height: 18, borderRadius: 9, background: "var(--color-cream-300)", position: "relative", transition: "background var(--duration-fast)" },
+  switchThumb: { width: 14, height: 14, borderRadius: "50%", background: "white", position: "absolute", top: 2, left: 2, transition: "transform var(--duration-fast)" },
+  inputRow: { display: "flex", gap: 8, marginBottom: 8, alignItems: "center" },
+  monthDayInput: { padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1.5px solid var(--color-cream-300)", background: "white", fontSize: "0.8rem", fontFamily: "var(--font-body)", color: "var(--color-earth-700)", outline: "none" },
+  timeInput: { padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1.5px solid var(--color-cream-300)", background: "white", fontSize: "0.8rem", fontFamily: "var(--font-body)", color: "var(--color-earth-700)", outline: "none", width: 100 },
+  textInput: { flex: 1, padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1.5px solid var(--color-cream-300)", background: "white", fontSize: "0.8rem", fontFamily: "var(--font-body)", color: "var(--color-earth-700)", outline: "none" },
+  select: { padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1.5px solid var(--color-cream-300)", background: "white", fontSize: "0.8rem", fontFamily: "var(--font-body)", color: "var(--color-earth-700)", outline: "none" },
+  sliderRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  iconBtn: { background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "var(--radius-sm)" },
+  addBtn: { display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", borderRadius: "var(--radius-sm)", border: "1px dashed var(--color-cream-300)", background: "none", fontSize: "0.8rem", cursor: "pointer", fontFamily: "var(--font-body)", color: "var(--color-earth-500)", marginTop: 4 },
+  testBtn: { padding: "8px 16px", borderRadius: "var(--radius-md)", border: "1.5px solid var(--color-rose-400)", background: "var(--color-rose-50)", color: "var(--color-rose-500)", fontSize: "0.85rem", cursor: "pointer", fontFamily: "var(--font-body)", fontWeight: 500 },
+  actions: { display: "flex", gap: 12, marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--color-cream-200)" },
+  saveBtn: { padding: "8px 20px", background: "var(--color-rose-500)", color: "white", border: "none", borderRadius: "var(--radius-md)", fontSize: "0.9rem", fontWeight: 500, cursor: "pointer", fontFamily: "var(--font-body)" },
+  cancelBtn: { padding: "8px 16px", background: "none", border: "1px solid var(--color-cream-300)", borderRadius: "var(--radius-md)", fontSize: "0.9rem", cursor: "pointer", fontFamily: "var(--font-body)", color: "var(--color-earth-500)" },
 };

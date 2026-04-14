@@ -297,3 +297,31 @@ pub fn get_proactive_settings(
     )
     .map_err(|_| AppError::not_found(format!("Persona '{}' not found", id)))
 }
+
+pub fn list_proactive_personas(
+    conn: &Connection,
+) -> Result<Vec<(String, String, Option<String>, Option<String>)>, AppError> {
+    let mut stmt = conn.prepare(
+        r#"SELECT p.id,
+                  p.name,
+                  p.proactive_rules,
+                  (SELECT MAX(cm.created_at) FROM chat_messages cm WHERE cm.persona_id = p.id) AS last_chat_at
+           FROM personas p
+           WHERE p.proactive_enabled = 1
+           ORDER BY p.updated_at DESC"#,
+    )?;
+
+    let personas = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })?
+        .filter_map(|row| row.ok())
+        .collect();
+
+    Ok(personas)
+}

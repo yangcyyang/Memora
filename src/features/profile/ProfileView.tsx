@@ -10,6 +10,7 @@ import type { Persona, VersionSummary, PersonaVoice } from "@/types";
 import { ArrowLeft, Trash2, RotateCcw, ChevronDown, ChevronUp, Save, X, Pencil, Mic, Volume2, Unlink, Loader2, Film, Download } from "lucide-react";
 import { toast } from "sonner";
 import { ProactiveSettings } from "./ProactiveSettings";
+import { MemoryVersionList } from "./MemoryVersionList";
 
 const VIDEO_EXTENSIONS = ["mp4", "mov", "mkv", "avi", "webm", "flv", "wmv"];
 
@@ -567,33 +568,14 @@ export function ProfileView() {
           {/* Versions */}
           {versions.length > 1 && (
             <section style={styles.section}>
-              <button type="button" onClick={() => setShowVersions(!showVersions)} style={styles.sectionHeader}>
-                <span style={styles.sectionTitle}>
-                  <RotateCcw size={14} style={{ marginRight: 6 }} />
-                  版本历史 ({versions.length})
-                </span>
-                {showVersions ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              </button>
-              {showVersions && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 0" }}>
-                  {versions.map((v) => (
-                    <div key={v.version} style={styles.versionRow}>
-                      <span>
-                        v{v.version}
-                        {v.version === persona.version && (
-                          <span style={styles.currentBadge}>当前</span>
-                        )}
-                      </span>
-                      <span className="text-caption">{new Date(v.created_at).toLocaleDateString("zh-CN")}</span>
-                      {v.version !== persona.version && (
-                        <button type="button" onClick={() => handleRollback(v.version)} style={styles.rollbackBtn}>
-                          回滚
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <MemoryVersionList 
+                personaId={personaId} 
+                currentVersion={persona.version}
+                onRollback={() => {
+                  // Reload persona data after rollback
+                  getPersona(personaId).then(setPersona).catch(console.error);
+                }}
+              />
             </section>
           )}
 

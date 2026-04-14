@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { getPersona, getChatHistory, listChatSessions, newChatSession, sendMessage, speakText, toggleClipboardWatcher, appendClipboardCorpus } from "@/lib/tauri";
+import { getPersona, getChatHistory, listChatSessions, newChatSession, sendMessage, speakText, toggleClipboardWatcher, appendClipboardCorpus, transcribeAudio } from "@/lib/tauri";
 import type { ChatMessage, Persona } from "@/types";
-import { ArrowLeft, Send, Menu, Edit3, Volume2, Loader2 } from "lucide-react";
+import { ArrowLeft, Send, Menu, Edit3, Volume2, Loader2, Mic } from "lucide-react";
 import { toast } from "sonner";
 import { SessionSidebar } from "./SessionSidebar";
 import { CorrectionDialog } from "./CorrectionDialog";
@@ -67,9 +67,12 @@ export function ChatView() {
   const [correctionTarget, setCorrectionTarget] = useState<string | null>(null);
   const [speakingMsgId, setSpeakingMsgId] = useState<number | null>(null);
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
+  const [recordingState, setRecordingState] = useState<"idle" | "recording" | "transcribing">("idle");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isInitialLoad = useRef(true);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // ── TTS speak handler ──
   const handleSpeak = useCallback(async (msg: ChatMessage) => {
@@ -238,6 +241,63 @@ export function ChatView() {
     setSessionId(newSessionId);
     setMessages([]);
     setStreamText("");
+  };
+
+  // ── STT Voice Input ──
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        setRecordingState("transcribing");
+        try {
+          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            const base64Audio = (reader.result as string).split(",")[1];
+            const text = await transcribeAudio(base64Audio, "audio/webm");
+            setInput((prev) => (prev ? prev + " " + text : text));
+            toast.success("语音转写完成");
+          };
+        } catch (e) {
+          toast.error(`转写失败: ${e}`);
+        } finally {
+          setRecordingState("idle");
+        }
+      };
+
+      mediaRecorder.start();
+      setRecordingState("recording");
+      toast.info("正在录音，点击停止");
+    } catch (e) {
+      toast.error(`无法启动录音: ${e}`);
+    }
+  };
+
+  const stopRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === "recording") {
+      recorder.stop();
+      recorder.stream.getTracks().forEach((track) => track.stop());
+    }
+  };
+
+  const toggleRecording = () => {
+    if (recordingState === "recording") {
+      stopRecording();
+    } else if (recordingState === "idle") {
+      startRecording();
+    }
   };
 
   if (!persona) {
@@ -413,15 +473,32 @@ export function ChatView() {
             placeholder={`和${persona.name}说点什么...`}
             style={styles.input}
             rows={1}
-            disabled={streaming}
+            disabled={streaming || recordingState === "transcribing"}
           />
           <button
             type="button"
+            onClick={toggleRecording}
+            disabled={streaming || recordingState === "transcribing"}
+            style={{
+              ...styles.micBtn,
+              color: recordingState === "recording" ? "var(--color-rose-500)" : "var(--color-earth-500)",
+              background: recordingState === "recording" ? "var(--color-rose-50)" : "transparent",
+              opacity: streaming || recordingState === "transcribing" ? 0.4 : 1,
+            }}
+          >
+            {recordingState === "transcribing" ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Mic size={18} />
+            )}
+          </button>
+          <button
+            type="button"
             onClick={handleSend}
-            disabled={!input.trim() || streaming}
+            disabled={!input.trim() || streaming || recordingState !== "idle"}
             style={{
               ...styles.sendBtn,
-              opacity: input.trim() && !streaming ? 1 : 0.4,
+              opacity: input.trim() && !streaming && recordingState === "idle" ? 1 : 0.4,
             }}
           >
             <Send size={18} />
@@ -493,4 +570,5 @@ const styles: Record<string, React.CSSProperties> = {
   inputWrapper: { display: "flex", alignItems: "flex-end", gap: 8, background: "var(--chat-input-bg)", borderRadius: "var(--radius-lg)", border: "1.5px solid var(--chat-input-border)", padding: "8px 12px" },
   input: { flex: 1, border: "none", background: "transparent", fontSize: "0.95rem", fontFamily: "var(--font-body)", color: "var(--color-earth-800)", outline: "none", resize: "none" as const, lineHeight: 1.6, maxHeight: 120 },
   sendBtn: { width: 36, height: 36, borderRadius: "50%", border: "none", background: "var(--color-rose-500)", color: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "opacity var(--duration-fast)" },
+  micBtn: { width: 36, height: 36, borderRadius: "50%", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, transition: "all var(--duration-fast)" },
 };

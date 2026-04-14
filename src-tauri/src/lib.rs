@@ -64,6 +64,7 @@ pub fn run() {
             if let Err(err) = commands::notification::setup_tray(&app.handle()) {
                 tracing::warn!("托盘初始化失败: {}", err);
             }
+            services::heartbeat_service::start(app.handle().clone());
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -100,6 +101,7 @@ pub fn run() {
             commands::settings::save_settings,
             commands::settings::validate_api_key,
             commands::notification::send_notification,
+            commands::notification::trigger_proactive_test,
             // ── Parser & OCR ──
             commands::parser::detect_and_parse,
             commands::parser::parse_pasted_text,
@@ -119,6 +121,9 @@ pub fn run() {
             // ── Calibration ──
             commands::calibration::generate_calibration_samples,
             commands::calibration::submit_calibration_feedback,
+            // ── Semantic Memory ──
+            commands::memory_search::index_memories,
+            commands::memory_search::search_memories,
             // ── Chat ──
             commands::chat::send_message,
             commands::chat::get_chat_history,
@@ -132,6 +137,8 @@ pub fn run() {
             commands::bridge::start_ws_bridge,
             commands::bridge::get_ws_bridge_port,
             commands::bridge::toggle_clipboard_watcher,
+            // ── STT ──
+            commands::stt::transcribe_audio,
             // ── TTS (Voice) ──
             commands::tts::get_tts_settings,
             commands::tts::save_tts_settings,
@@ -145,6 +152,8 @@ pub fn run() {
             commands::tts::check_ffmpeg,
             commands::tts::get_cache_stats,
             commands::tts::clear_audio_cache,
+            // ── STT ──
+            commands::stt::transcribe_audio,
             // ── Backup ──
             commands::backup::export_persona,
         ])

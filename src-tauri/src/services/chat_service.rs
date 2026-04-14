@@ -7,6 +7,7 @@ use crate::models::{ChatMessage, SessionSummary};
 use crate::prompts;
 use crate::repo::{chat_repo, persona_repo, session_repo};
 use crate::services::compaction;
+use crate::services::memory_search_service;
 use anyhow::Context;
 
 #[tracing::instrument(skip(app), err)]
@@ -18,9 +19,10 @@ pub async fn send_message(
 ) -> Result<String, AppError> {
     let config = ai_config::load_config();
     let now = chrono::Utc::now().to_rfc3339();
+    let latest_user_message = content.clone();
 
     // All DB work in a blocking closure to avoid holding r2d2 connections across .await
-    let (system_prompt, history) = {
+    let (name, persona_md, memories_md, session_summary, history) = {
         let pool = memora_pool();
         let conn = pool.get().context("DB connection failed")?;
 
@@ -52,8 +54,49 @@ pub async fn send_message(
         let recent_limit: i32 = if session_summary.is_empty() { 50 } else { 12 };
         let hist = chat_repo::recent_messages(&conn, &persona_id, &session_id, recent_limit)?;
 
-        (sys, hist)
+        (name, persona_md, memories_md, session_summary, hist)
     };
+
+    let selected_memories_md = if memory_search_service::has_index(&persona_id) {
+        match memory_search_service::search_memories_texts(&persona_id, &latest_user_message, 5).await {
+            Ok(hits) if !hits.is_empty() => {
+                tracing::info!(
+                    "semantic_search: top-{} memories injected, query_len={}",
+                    5,
+                    latest_user_message.chars().count()
+                );
+                let bullet_list = hits
+                    .into_iter()
+                    .map(|item| format!("- {}", item))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("## 共同记忆（语义检索 Top-5）\n{}", bullet_list)
+            }
+            Ok(_) => {
+                tracing::info!("semantic_search: index exists but returned 0 hits, fallback to full memories");
+                memories_md.clone()
+            }
+            Err(err) => {
+                tracing::warn!("semantic_search failed, fallback to full memories: {}", err);
+                memories_md.clone()
+            }
+        }
+    } else {
+        memories_md.clone()
+    };
+
+    let summary_block = if session_summary.is_empty() {
+        "\n".to_string()
+    } else {
+        format!("\n## 故事前情提要\n{}\n\n", session_summary)
+    };
+
+    let system_prompt = prompts::render(prompts::SYSTEM_CHAT, &[
+        ("name", &name),
+        ("persona_md", &persona_md),
+        ("memories_md", &selected_memories_md),
+        ("session_summary", &summary_block),
+    ]);
 
     // Stream completion (async)
     let request_id = uuid::Uuid::new_v4().to_string();
