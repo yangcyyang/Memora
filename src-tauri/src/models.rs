@@ -137,6 +137,37 @@ pub struct CorrectionResult {
     pub version: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReinforcementResult {
+    pub success: bool,
+    pub version: i32,
+    pub rules: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalibrationSample {
+    pub id: String,
+    pub scenario: String,
+    pub reply: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalibrationFeedbackItem {
+    pub sample_id: String,
+    pub scenario: String,
+    pub reply: String,
+    pub liked: bool,
+    pub tags: Vec<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalibrationApplyResult {
+    pub success: bool,
+    pub version: i32,
+    pub rules: Vec<String>,
+}
+
 // ── Context Compaction ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

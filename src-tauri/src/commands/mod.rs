@@ -1,4 +1,5 @@
 pub mod bridge;
+pub mod calibration;
 pub mod chat;
 pub mod correction;
 pub mod generator;

@@ -90,6 +90,9 @@ pub fn run() {
             commands::persona::append_clipboard_corpus,
             // ── Generator ──
             commands::generator::generate_persona,
+            // ── Calibration ──
+            commands::calibration::generate_calibration_samples,
+            commands::calibration::submit_calibration_feedback,
             // ── Chat ──
             commands::chat::send_message,
             commands::chat::get_chat_history,
@@ -98,6 +101,7 @@ pub fn run() {
             commands::chat::delete_chat_session,
             // ── Correction ──
             commands::correction::submit_correction,
+            commands::correction::reinforce_memory,
             // ── Bridge (Chrome Extension) ──
             commands::bridge::start_ws_bridge,
             commands::bridge::get_ws_bridge_port,
