@@ -1,6 +1,7 @@
 pub mod detect;
 pub mod imessage;
 pub mod ios_backup;
+pub mod qq;
 pub mod wechat;
 pub mod wechat_win;
 
@@ -27,6 +28,7 @@ pub fn detect_and_parse(path: &Path) -> Result<DetectResult> {
 
     let source = detect::detect_source(path)?;
     let parsed = match source.as_str() {
+        "qq_txt" => qq::parse_txt(path)?,
         "wechat_txt" => wechat::parse_txt(path)?,
         "wechat_html" => wechat::parse_html(path)?,
         "wechat_csv" => wechat::parse_csv(path)?,

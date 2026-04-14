@@ -55,7 +55,9 @@ pub fn detect_source(path: &Path) -> Result<String> {
         }
         "txt" => {
             let head = read_head(path, 4096)?;
-            if WECHAT_TXT_PATTERN.is_match(&head) {
+            if super::qq::looks_like_qq_txt(&head) {
+                Ok("qq_txt".to_string())
+            } else if WECHAT_TXT_PATTERN.is_match(&head) {
                 Ok("wechat_txt".to_string())
             } else {
                 Ok("generic_text".to_string())
