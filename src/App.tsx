@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { Toaster } from "sonner";
+import { listen } from "@tauri-apps/api/event";
 import { getSettings, listPersonas } from "@/lib/tauri";
 import { useTheme } from "@/hooks/useTheme";
 import { Sidebar } from "@/components/Sidebar";
@@ -38,6 +39,19 @@ export default function App() {
       }
       setReady(true);
     })();
+  }, [navigate]);
+
+  // 监听主动触达通知点击事件
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    
+    listen<{ persona_id: string }>("proactive-trigger", (event) => {
+      const { persona_id } = event.payload;
+      setCurrentPersonaId(persona_id);
+      navigate({ to: "/chat/$personaId", params: { personaId: persona_id } });
+    }).then(fn => { unlisten = fn; });
+    
+    return () => { unlisten?.(); };
   }, [navigate]);
 
   const handleSelectPersona = (id: string) => {
